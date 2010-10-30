@@ -1,4 +1,5 @@
 CC_OPTS = -Wall -Werror -lev
+#-L/opt/local/var/macports/software/libev/3.6_0/opt/local/lib
 
 all: unix-echo udp-echo
 

@@ -9,7 +9,7 @@ Usage
 unix-echo
 ---
 
-Not working yet
+Very simple working example. Not sure if it is 100% correct.
 
 udp-echo
 ----

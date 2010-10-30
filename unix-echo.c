@@ -13,7 +13,7 @@
 //#include <resolv.h>
 #include <unistd.h>
 
-#define SOCK_PATH "/tmp/libev_echo_socket"
+#define SOCK_PATH "/tmp/libev_echo.sock"
 
 #define BUF_SIZE        4096
 
@@ -28,12 +28,46 @@ char buffer[BUF_SIZE];
 // This callback is called when data is readable on the UDP socket.
 static void socket_cb(EV_P_ ev_io *w, int revents) {
     puts("unix stream socket has become readable");
-    socklen_t bytes = recvfrom(serverd, buffer, sizeof(buffer) - 1, 0, (struct sockaddr*) &server, (socklen_t *) &server_len);
+
+    clientd = accept(serverd, (struct sockaddr *)&client, (socklen_t*)&client_len);
+    if (-1 == clientd) {
+      perror("accepting client");
+      exit(EXIT_FAILURE);
+    }
+
+    int done;
+    int n;
+    char str[100];
+
+    done = 0;
+    do {
+      n = recv(clientd, str, 100, 0);
+      if (n <= 0) {
+        if (n < 0) {
+          perror("recv");
+        }
+        done = 1;
+      }
+
+      if (!done) {
+        printf("socket client said: %s", str);
+        /*
+        if (send(clientd, str, n, 0) < 0) {
+          perror("send");
+          done = 1;
+        }
+        */
+      }
+    } while (!done);
+
+    close(clientd);
+
+    //socklen_t bytes = recvfrom(serverd, buffer, sizeof(buffer) - 1, 0, (struct sockaddr*) &server, (socklen_t *) &server_len);
 
     // add a null to terminate the input, as we're going to use it as a string
-    buffer[bytes] = '\0';
+    //buffer[bytes] = '\0';
 
-    printf("socket client said: %s", buffer);
+    //printf("socket client said: %s", buffer);
 
     // Echo it back.
     // WARNING: this is probably not the right way to do it with libev.
@@ -51,6 +85,8 @@ int setnonblock(int fd)
 }
 
 int main(void) {
+    int max_queue = 128;
+
     puts("unix-socket-echo server started...");
 
     // Setup a unix socket listener.
@@ -68,12 +104,16 @@ int main(void) {
     bzero(&server, server_len);
     server.sun_family = AF_UNIX;
     strcpy(server.sun_path, SOCK_PATH);
-    if (bind(serverd, (struct sockaddr*) &server, server_len) != 0)
+    if (-1 == bind(serverd, (struct sockaddr*) &server, server_len))
     {
       perror("echo server bind");
       exit(EXIT_FAILURE);
     }
 
+    if (-1 == listen(serverd, max_queue)) {
+      perror("listen");
+      exit(EXIT_FAILURE);
+    }
     
     // Do the libev stuff.
     struct ev_loop *loop = ev_default_loop(0);
