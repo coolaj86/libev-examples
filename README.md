@@ -3,18 +3,13 @@ libev Echo
 
 A collection of simple examples for libev. Please fork and contribute.
 
-Goal
-----
-
-A working implementation of `tcp`, `udp`, `unix stream socket`, and `unix dgram socket` echo servers from the same libev enabled binary.
-
 Usage
 ====
 
 unix-echo
 ---
 
-Very simple working example. Not sure if it is 100% correct.
+Not working yet
 
 udp-echo
 ----

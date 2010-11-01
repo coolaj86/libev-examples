@@ -1,11 +1,11 @@
-#!/usr/bin/env node
-(function () {
-  var net = require("net"),
-    stream;
+var net = require("net"),
+    repl = require("repl");
 
-  stream = net.createConnection(3333, 'localhost');
-  stream.on('connect', function () {
-    stream.write("hello world\n");
-    stream.end();
-  });
-}());
+connections = 0;
+
+repl.start("node via stdin> ");
+
+net.createServer(function (socket) {
+  connections += 1;
+  repl.start("node via TCP socket> ", socket);
+}).listen(5001);

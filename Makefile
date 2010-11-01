@@ -1,10 +1,18 @@
-CC_OPTS = -Wall -Werror -lev
-#-L/opt/local/var/macports/software/libev/3.6_0/opt/local/lib
+CC_OPTS = -Wall -Werror -lev -ggdb3
 
-all: unix-echo udp-echo
+all: array_heap.o unix-echo udp-echo
+
+clean:
+	rm -f *.o array-test
+
+array-test: array_heap.o array_test.c
+	$(CC) $(CC_OPTS) -o array-test array_test.c array_heap.o
+
+array_heap.o: array_heap.c array_heap.h
+	$(CC) $(CC_OPTS) -o array_heap.o -c array_heap.c
 
 udp-echo: udp-echo.c
 	$(CC) $(CC_OPTS) -o udp-echo udp-echo.c
 
-unix-echo: unix-echo.c
-	$(CC) $(CC_OPTS) -o unix-echo unix-echo.c
+unix-echo: unix-echo.c array_heap.o
+	$(CC) $(CC_OPTS) -o $@ $< array_heap.o
