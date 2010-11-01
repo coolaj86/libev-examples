@@ -17,9 +17,12 @@ int array_push(array* arr, void* data) {
   ((int*)arr->data)[arr->index] = (int)data;
   arr->index += 1;
   if (arr->index >= arr->length) {
-    return array_grow(arr, arr->length * 2);
+    if (-1 == array_grow(arr, arr->length * 2))
+    {
+      return -1;
+    }
   }
-  return 0;
+  return arr->index - 1;
 }
 
 int array_grow(array* arr, int size) {

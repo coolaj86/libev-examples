@@ -3,7 +3,7 @@ CC_OPTS = -Wall -Werror -lev -ggdb3
 all: array_heap.o unix-echo udp-echo
 
 clean:
-	rm -f *.o array-test
+	rm -f *.o array-test unix-echo udp-echo
 
 array-test: array_heap.o array_test.c
 	$(CC) $(CC_OPTS) -o array-test array_test.c array_heap.o
