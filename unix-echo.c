@@ -17,19 +17,34 @@
 
 #define BUF_SIZE        4096
 
+/*
 int serverd; // socket descriptor
-int clientd; // socket descriptor
 struct sockaddr_un server;
-struct sockaddr_un client;
 int server_len = sizeof(server);
+*/
+int clientd; // socket descriptor
+struct sockaddr_un client;
 int client_len = sizeof(client);
 char buffer[BUF_SIZE];
+
+// This struct should work generically with any socket
+typedef struct {
+  ev_io io;
+  int fd;
+  struct sockaddr_un socket;
+  int socket_len;
+} socket_io;
 
 // This callback is called when data is readable on the UDP socket.
 static void socket_cb(EV_P_ ev_io *w, int revents) {
     puts("unix stream socket has become readable");
 
-    clientd = accept(serverd, (struct sockaddr *)&client, (socklen_t*)&client_len);
+    // since ev_io is the first member,
+    // watcher `w` has the address of the 
+    // start of the socket_io struct
+    socket_io* server = (socket_io*) w;
+
+    clientd = accept(server->fd, (struct sockaddr *)&client, (socklen_t*)&client_len);
     if (-1 == clientd) {
       perror("accepting client");
       exit(EXIT_FAILURE);
@@ -51,6 +66,7 @@ static void socket_cb(EV_P_ ev_io *w, int revents) {
 
       if (!done) {
         printf("socket client said: %s", str);
+        // not finished yet
         /*
         if (send(clientd, str, n, 0) < 0) {
           perror("send");
@@ -75,6 +91,7 @@ static void socket_cb(EV_P_ ev_io *w, int revents) {
     //sendto(sd, buffer, bytes, 0, (struct sockaddr*) &addr, sizeof(addr));
 }
 
+// Simply adds O_NONBLOCK to the file descriptor of choice
 int setnonblock(int fd)
 {
   int flags;
@@ -86,43 +103,48 @@ int setnonblock(int fd)
 
 int main(void) {
     int max_queue = 128;
+    socket_io server;
+
+    unlink(SOCK_PATH);
+    memset(&server, 0, sizeof(socket_io));
 
     puts("unix-socket-echo server started...");
 
     // Setup a unix socket listener.
-    serverd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (-1 == serverd) {
+    server.fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (-1 == server.fd) {
       perror("echo server socket");
       exit(EXIT_FAILURE);
     }
 
-    if (-1 == setnonblock(serverd)) {
+    if (-1 == setnonblock(server.fd)) {
       perror("echo server socket nonblock");
       exit(EXIT_FAILURE);
     }
 
-    bzero(&server, server_len);
-    server.sun_family = AF_UNIX;
-    strcpy(server.sun_path, SOCK_PATH);
-    if (-1 == bind(serverd, (struct sockaddr*) &server, server_len))
+    server.socket.sun_family = AF_UNIX;
+    strcpy(server.socket.sun_path, SOCK_PATH);
+    server.socket_len = sizeof(server.socket.sun_family) + strlen(server.socket.sun_path);
+
+    if (-1 == bind(server.fd, (struct sockaddr*) &server.socket, server.socket_len))
     {
       perror("echo server bind");
       exit(EXIT_FAILURE);
     }
 
-    if (-1 == listen(serverd, max_queue)) {
+    if (-1 == listen(server.fd, max_queue)) {
       perror("listen");
       exit(EXIT_FAILURE);
     }
     
     // Do the libev stuff.
     struct ev_loop *loop = ev_default_loop(0);
-    ev_io socket_watcher;
-    ev_io_init(&socket_watcher, socket_cb, serverd, EV_READ);
-    ev_io_start(loop, &socket_watcher);
+    //ev_io socket_watcher;
+    ev_io_init(&server.io, socket_cb, server.fd, EV_READ);
+    ev_io_start(loop, &server.io);
     ev_loop(loop, 0);
 
     // This point is never reached.
-    close(serverd);
+    close(server.fd);
     return EXIT_SUCCESS;
 }
