@@ -108,7 +108,7 @@ static struct argp argp = { options, parse_opt, 0, doc };
 
 // Nasty globals for now
 // feel free to fork this example and clean it up
-EV_P;
+EV_P; // Macro for `struct ev_loop* loop`
 ev_io daemon_w;
 ev_io send_w;
 int daemon_fd;
