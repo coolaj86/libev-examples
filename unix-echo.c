@@ -17,20 +17,6 @@
 
 #include "array_heap.h"
 
-#define BUF_SIZE        4096
-
-int setnonblock(int fd);
-static void not_blocked(EV_P_ ev_periodic *w, int revents);
-
-/*
-int serverd; // socket descriptor
-struct sockaddr_un server;
-int server_len = sizeof(server);
-*/
-struct sockaddr_un client;
-int client_len = sizeof(client);
-char buffer[BUF_SIZE];
-
 struct sock_ev_serv {
   ev_io io;
   int fd;
@@ -46,60 +32,39 @@ struct sock_ev_client {
   struct sock_ev_serv* server;
 };
 
+int setnonblock(int fd);
+static void not_blocked(EV_P_ ev_periodic *w, int revents);
+
 // This callback is called when client data is available
 static void client_cb(EV_P_ ev_io *w, int revents) {
-  puts("a client has become readable");
+  // a client has become readable
 
   struct sock_ev_client* client = (struct sock_ev_client*) w;
 
   int n;
   char str[100] = ".\0";
 
-  while (1) {
-    n = recv(client->fd, str, 100, 0);
-    if (n <= 0) {
-      if (0 == n) {
-        // an orderly disconnect
-        puts("orderly disconnect");
-        ev_io_stop(EV_A_ &client->io);
-        close(client->fd);
-      } else if (EAGAIN == errno) {
-        break;
-      } else if (EBADF == errno) {
-        puts("EBADF: appears that the client is MIA, closing the connection");
-        ev_io_stop(EV_A_ &client->io);
-        close(client->fd);
-      } else if (EBADFD == errno) {
-        puts("EBADFD: appears that the client is MIA, closing the connection");
-        ev_io_stop(EV_A_ &client->io);
-        close(client->fd);
-      } else {
-        printf("errno: %i ", errno);
-        perror("recv");
-      }
-      break;
-    } 
-    printf("socket client said: %s", str);
-      // not finished yet
-      /*
-      if (send(client_fd, str, n, 0) < 0) {
-        perror("send");
-        done = 1;
-      }
-      */
-  };
+  printf("[r]");
+  n = recv(client->fd, str, 100, 0);
+  if (n <= 0) {
+    if (0 == n) {
+      // an orderly disconnect
+      puts("orderly disconnect");
+      ev_io_stop(EV_A_ &client->io);
+      close(client->fd);
+    }  else if (EAGAIN == errno) {
+      puts("should never get in this state with libev");
+    } else {
+      perror("recv");
+    }
+    return;
+  } 
+  printf("socket client said: %s", str);
 
-    //socklen_t bytes = recvfrom(serverd, buffer, sizeof(buffer) - 1, 0, (struct sockaddr*) &server, (socklen_t *) &server_len);
-
-    // add a null to terminate the input, as we're going to use it as a string
-    //buffer[bytes] = '\0';
-
-    //printf("socket client said: %s", buffer);
-
-    // Echo it back.
-    // WARNING: this is probably not the right way to do it with libev.
-    // Question: should we be setting a callback on sd becomming writable here instead?
-    //sendto(sd, buffer, bytes, 0, (struct sockaddr*) &addr, sizeof(addr));
+  // Assuming that whenever a client is readable, it is also writable ?
+  if (send(client->fd, str, n, 0) < 0) {
+    perror("send");
+  }
 }
 
 inline static struct sock_ev_client* client_new(int fd) {
@@ -128,7 +93,7 @@ static void server_cb(EV_P_ ev_io *w, int revents) {
 
   while (1)
   {
-    client_fd = accept(server->fd, (struct sockaddr *)&client, (socklen_t*)&client_len);
+    client_fd = accept(server->fd, NULL, NULL);
     if( client_fd == -1 )
     {
       if( errno != EAGAIN && errno != EWOULDBLOCK )
@@ -203,14 +168,11 @@ int main(void) {
     int max_queue = 128;
     struct sock_ev_serv server;
     struct ev_periodic every_few_seconds;
-    EV_P = NULL;
-    //struct ev_loop* loop = NULL;
+    // Create our single-loop for this single-thread application
+    EV_P  = ev_default_loop(0);
 
     // Create unix socket in non-blocking fashion
     server_init(&server, "/tmp/libev-echo.sock", max_queue);
-
-    // Create our single-loop for this signle-thread application
-    loop = ev_default_loop(0);
 
     // To be sure that we aren't actually blocking
     ev_periodic_init(&every_few_seconds, not_blocked, 0, 5, 0);
@@ -221,7 +183,7 @@ int main(void) {
     ev_io_start(EV_A_ &server.io);
 
     // Run our loop, ostensibly forever
-    puts("unix-socket-echo server starting...");
+    puts("unix-socket-echo starting...\n");
     ev_loop(EV_A_ 0);
 
     // This point is only ever reached if the loop is manually exited
