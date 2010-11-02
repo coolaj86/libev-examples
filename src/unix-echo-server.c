@@ -15,7 +15,7 @@
 //#include <resolv.h>
 #include <unistd.h>
 
-#include "array_heap.h"
+#include "array-heap.h"
 
 struct sock_ev_serv {
   ev_io io;

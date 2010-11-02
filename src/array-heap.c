@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "array_heap.h"
+#include "array-heap.h"
 
 int array_init(array* arr, int size) {
   arr->data = realloc(NULL, sizeof(void*) * size);
