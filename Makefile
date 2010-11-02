@@ -1,9 +1,9 @@
 CC_OPTS = -Wall -Werror -lev -ggdb3
 
-all: array_heap.o unix-echo udp-echo
+all: array_heap.o unix-echo unix-echo-client udp-echo
 
 clean:
-	rm -f *.o array-test unix-echo udp-echo
+	rm -f *.o array-test unix-echo unix-echo-client udp-echo
 
 array-test: array_heap.o array_test.c
 	$(CC) $(CC_OPTS) -o array-test array_test.c array_heap.o
@@ -16,3 +16,6 @@ udp-echo: udp-echo.c
 
 unix-echo: unix-echo.c array_heap.o
 	$(CC) $(CC_OPTS) -o $@ $< array_heap.o
+
+unix-echo-client: unix-echo-client.c
+	$(CC) $(CC_OPTS) -o $@ $<

@@ -103,6 +103,7 @@ static void server_cb(EV_P_ ev_io *w, int revents) {
       }
       break;
     }
+    puts("accepted a client");
     client = client_new(client_fd);
     client->server = server;
     client->index = array_push(&server->clients, client);
