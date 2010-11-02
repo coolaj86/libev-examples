@@ -25,7 +25,7 @@ In terminal A:
 
     ./unix-echo-server
 
-Then in terminal B:
+Then type away in terminal B:
 
     ./unix-echo-client
 
