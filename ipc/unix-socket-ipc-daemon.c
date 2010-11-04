@@ -41,6 +41,12 @@ struct sock_ev_client {
 
 int setnonblock(int fd);
 static void not_blocked(EV_P_ ev_periodic *w, int revents);
+static void server_cb(EV_P_ ev_io *w, int revents);
+inline static struct sock_ev_client* client_new(int fd);
+static void client_cb(EV_P_ ev_io *w, int revents);
+int server_init(struct sock_ev_serv* server, char* sock_path, int max_queue);
+int unix_socket_init(struct sockaddr_un* socket_un, char* sock_path, int max_queue);
+
 
 // This callback is called when client data is available
 static void client_cb(EV_P_ ev_io *w, int revents) {
