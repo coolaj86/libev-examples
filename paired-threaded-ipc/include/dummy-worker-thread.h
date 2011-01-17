@@ -4,7 +4,7 @@
 #include <ev.h>
 #include <pthread.h>
 
-#include "dummy_settings.h"
+#include "dummy-settings.h"
 
 // this is the struct containing all the variables that the main thread needs to communicate with the DPROC thread
 // we do this so we can easily pass the info into the secondary thread without using any convoluting externs

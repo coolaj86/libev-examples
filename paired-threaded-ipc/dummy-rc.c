@@ -16,7 +16,7 @@
 #include <errno.h>
 
 // Application Specific
-#include "dummy_settings.h"
+#include "dummy-settings.h"
 #include "bool.h"
 
 

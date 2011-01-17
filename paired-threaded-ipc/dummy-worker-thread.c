@@ -5,7 +5,7 @@
 
 #include "dummy-worker-thread.h"
 #include "dummy-worker.h"
-#include "dummy_settings.h"
+#include "dummy-settings.h"
 
 //function prototypes
 static void update_settings(EV_P_ ev_async *w, int revents);

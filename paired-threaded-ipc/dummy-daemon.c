@@ -21,7 +21,7 @@
 #include <ev.h>
 #include <pthread.h>
 
-#include "dummy_settings.h"
+#include "dummy-settings.h"
 #include "bool.h"
 
 #define LOG_PATH "/tmp/"

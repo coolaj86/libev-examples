@@ -1,6 +1,6 @@
 #include <stdio.h> // printf
 
-#include "dummy_settings.h"
+#include "dummy-settings.h"
 
 void dummy_settings_set_presets(DUMMY_SETTINGS* dummy_settings)
 {
