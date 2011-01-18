@@ -62,20 +62,23 @@ evn_set_nonblock(int fd)
 }
 
 
-int
+struct evn_server*
 evn_server_create(EV_P_ struct evn_server_callbacks callbacks)
 {
   EVN_SRV_P = evn_server_new();
-  if (NULL != EVN_SRV_A) {
+  /*
+  if (NULL == EVN_SRV_A) {
     // TODO evn_perror(); if DEBUG
-    return -1;
+    return NULL;
   }
+  */
   EVN_SRV_A->EV_A = EV_A;
   EVN_SRV_A->priv.callbacks.listen = callbacks.listen;
   EVN_SRV_A->priv.callbacks.connection = callbacks.connection;
   EVN_SRV_A->priv.callbacks.close = callbacks.close;
   EVN_SRV_A->priv.max_queue = SOMAXCONN;
-  return 0;
+
+  return EVN_SRV_A;
 }
 
 int
@@ -307,4 +310,11 @@ evn_stream_close(EVN_STR_P)
   // TODO free alloc`d members
   free(EVN_STR_A);
   return;
+}
+
+inline int 
+evn_stream_set_timeout(EVN_STR_P_ struct timeval tp)
+{
+  puts("set_timeout not implemented yet");
+  return -1;
 }

@@ -106,7 +106,7 @@ struct evn_buffer {
 
 ev_tstamp evn_tstamp_to_ev_tstamp(struct timeval);
 
-int evn_server_create(EV_P_ struct evn_server_callbacks callbacks);
+struct evn_server* evn_server_create(EV_P_ struct evn_server_callbacks callbacks);
 int evn_server_listen(EVN_SRV_P, int port, char* address);
 int evn_server_set_max_queue(EVN_SRV_P, int max_queue);
 int evn_server_close(EVN_SRV_P);
