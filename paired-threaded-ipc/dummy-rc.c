@@ -19,6 +19,7 @@
 #include "dummy-settings.h"
 #include "bool.h"
 
+#include "evn.h"
 
 /* IPC Data */
 
@@ -164,17 +165,6 @@ static void daemon_cb (EV_P_ ev_io *w, int revents)
   ev_io_start(EV_A_ &send_w);
   // Once we're connected, that's the end of that
   ev_io_stop(EV_A_ &daemon_w);
-}
-
-
-// Simply adds O_NONBLOCK to the file descriptor of choice
-int evn_set_nonblock(int fd)
-{
-  int flags;
-
-  flags = fcntl(fd, F_GETFL);
-  flags |= O_NONBLOCK;
-  return fcntl(fd, F_SETFL, flags);
 }
 
 static int connection_new(EV_P_ char* sock_path) {

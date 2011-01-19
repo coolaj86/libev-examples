@@ -14,6 +14,26 @@
 
 #include "bool.h"
 
+#define EVN_DEBUG 1
+
+#ifndef EVN_DEBUG
+  #if defined DEBUG
+    #define EVN_DEBUG 1
+  #else
+    #define EVN_DEBUG 0
+  #endif
+#endif
+
+#if EVN_DEBUG
+  #include <stdio.h>
+  #define evn_debug(...) printf("[EVN] " __VA_ARGS__)
+  #define evn_debugs(...) puts("[EVN] " __VA_ARGS__)
+#else
+  #define evn_debug(...)
+  #define evn_debugs(...)
+#endif
+
+
 struct evn_stream;
 struct evn_server;
 struct evn_exception;
@@ -73,7 +93,6 @@ struct evn_stream {
 
 int evn_set_nonblock(int fd);
 struct evn_stream* evn_stream_create(int fd);
-int evn_server_unix_create(struct sockaddr_un* socket_un, char* sock_path);
 struct evn_server* evn_server_create(EV_P_ char* sock_path, int max_queue);
 
 int evn_server_destroy(EV_P_ struct evn_server* server);
@@ -82,4 +101,5 @@ int evn_stream_destroy(EV_P_ struct evn_stream* stream);
 void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents);
 void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents);
 
+int evn_server_listen(struct evn_server* server);
 #endif
