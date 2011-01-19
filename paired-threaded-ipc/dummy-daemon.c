@@ -10,13 +10,6 @@
 #include <errno.h>
 #include <string.h>
 
-// Network Stuff
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <fcntl.h>
-#include <unistd.h>
-
 // Libev
 #include <ev.h>
 #include <pthread.h>
@@ -24,35 +17,15 @@
 #include "dummy-settings.h"
 #include "bool.h"
 
+#include "evn.h"
+
 #define LOG_PATH "/tmp/"
 
-struct sock_ev_serv {
-  ev_io io;
-  int fd;
-  struct sockaddr_un socket;
-  int socket_len;
-  //array clients;
-};
-
-struct sock_ev_client {
-  ev_io io;
-  int fd;
-  int index;
-  struct sock_ev_serv* server;
-  char type;
-};
 
 //Function Prototypes
-int setnonblock(int fd);
-static void not_blocked(EV_P_ ev_periodic *w, int revents);
-int server_init(struct sock_ev_serv* server, char* sock_path, int max_queue);
-int unix_socket_init(struct sockaddr_un* socket_un, char* sock_path, int max_queue);
-static void server_cb(EV_P_ ev_io *w, int revents);
-inline static struct sock_ev_client* client_new(int fd);
-static void client_cb(EV_P_ ev_io *w, int revents);
-int close_client(EV_P_ struct sock_ev_client* client);
 void clean_shutdown(int sig);
 static void add_to_buffer(char* filename);
+static void test_process_is_not_blocked(EV_P_ ev_periodic *w, int revents);
 
 const char* argp_program_version = "ACME DummyServe v1.0 (Alphabet Animal)";
 const char* argp_program_bug_address = "<bugs@example.com>";
@@ -62,13 +35,13 @@ static char doc[] = "ACME DummyServe -- An abstraction layer between the Dummy P
 
 //settings structs
 static DUMMY_SETTINGS   dummy_settings;
-static bool redirect = true;
+static bool redirect = false;
 
 static pthread_t dsp_thread;
 static struct DPROC_THREAD_CONTROL thread_control;
 
 //the server for the socket we get the triggers and settings over
-static struct sock_ev_serv server;
+static struct evn_server server;
 
 // Create our single-loop for this single-thread application
 EV_P;
@@ -153,13 +126,17 @@ int main (int argc, char* argv[])
   }
 
   int max_queue = 128;
-  struct ev_periodic every_few_seconds;
-  
   EV_A = ev_default_loop(0);
 
+  if (0)
+  {
+  struct ev_periodic every_few_seconds;
+  
+
   // To be sure that we aren't actually blocking
-  ev_periodic_init(&every_few_seconds, not_blocked, 0, 1, 0);
+  ev_periodic_init(&every_few_seconds, test_process_is_not_blocked, 0, 1, 0);
   ev_periodic_start(EV_A_ &every_few_seconds);
+  }
 
   // Set the priority of this whole process higher (requires root)
   setpriority(PRIO_PROCESS, 0, -13); // -15
@@ -188,11 +165,11 @@ int main (int argc, char* argv[])
 
   // Create unix socket in non-blocking fashion
   #ifdef TI_DPROC
-    server_init(&server, "/tmp/libev-ipc-daemon.sock", max_queue);
+    evn_server_create(&server, "/tmp/libev-ipc-daemon.sock", max_queue);
   #else
     char socket_address[256];
     snprintf(socket_address, sizeof socket_address, "/tmp/libev-ipc-daemon.sock%d", (int)getuid());
-    server_init(&server, socket_address, max_queue);
+    evn_server_create(&server, socket_address, max_queue);
   #endif
   
   signal(SIGQUIT, clean_shutdown);
@@ -200,7 +177,7 @@ int main (int argc, char* argv[])
   signal(SIGINT,  clean_shutdown);
   
   // Get notified whenever the socket is ready to read
-  ev_io_init(&server.io, server_cb, server.fd, EV_READ);
+  ev_io_init(&server.io, evn_server_connection_priv_cb, server.fd, EV_READ);
   ev_io_start(EV_A_ &server.io);
   
   // Run our loop, until we recieve the QUIT, TERM or INT signals, or an 'x' over the socket.
@@ -212,7 +189,7 @@ int main (int argc, char* argv[])
   return 0;
 }
 
-static void not_blocked(EV_P_ ev_periodic *w, int revents) {
+static void test_process_is_not_blocked(EV_P_ ev_periodic *w, int revents) {
   static int up_time = 0;
   struct stat sb;
   int status1, status2;
@@ -263,32 +240,32 @@ static void add_to_buffer(char* filename)
   ev_async_send(thread_control.EV_A, &(thread_control.process_data));
 }
 
-int close_client(EV_P_ struct sock_ev_client* client)
+int evn_stream_destroy(EV_P_ struct evn_stream* stream)
 {
   puts("orderly disconnect");
-  ev_io_stop(EV_A_ &client->io);
-  close(client->fd);
-  free(client);
+  ev_io_stop(EV_A_ &stream->io);
+  close(stream->fd);
+  free(stream);
   return 0;
 }
 
-// This callback is called when client data is available
-static void client_cb(EV_P_ ev_io *w, int revents) {
-  // a client has become readable
+// This callback is called when stream data is available
+void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents) {
+  puts("[dummyd] - new data - EV_READ - stream has become readable");
 
-  struct sock_ev_client* client = (struct sock_ev_client*) w;
+  struct evn_stream* stream = (struct evn_stream*) w;
 
   char filename[32];
   int n;
 
-  if(0 == client->type)
+  if(0 == stream->type)
   {
     printf("[r]");
-    n = recv(client->fd, &(client->type), sizeof (client->type), 0);
+    n = recv(stream->fd, &(stream->type), sizeof (stream->type), 0);
     if (n <= 0) {
       if (0 == n) {
         // an orderly disconnect
-        close_client(EV_A_ client);
+        evn_stream_destroy(EV_A_ stream);
       } else if (EAGAIN == errno) {
         fprintf(stderr, "should never get in this state (EAGAIN) with libev\n");
       } else {
@@ -298,89 +275,90 @@ static void client_cb(EV_P_ ev_io *w, int revents) {
     }
   }
 
-  if ('g' == client->type) {
+  if ('g' == stream->type) {
     puts("g - dummy_settings");
     usleep(10);
 
     pthread_mutex_lock(&(thread_control.settings_lock));
-    n = recv(client->fd, &dummy_settings, sizeof dummy_settings, 0);
+    n = recv(stream->fd, &dummy_settings, sizeof dummy_settings, 0);
     pthread_mutex_unlock(&(thread_control.settings_lock));
 
     if (sizeof dummy_settings != n) {
       perror("recv dummy struct");
       return;
     }
-    close_client(EV_A_ client);
+    evn_stream_destroy(EV_A_ stream);
 
     // tell the DPROC thread to copy the settings from the pointers we gave it
     ev_async_send(thread_control.EV_A, &(thread_control.update_settings));
   }
-  else if ('.' == client->type)
+  else if ('.' == stream->type)
   {
     memset(filename, 0, sizeof filename);
     puts(". - process new data (same settings)");
     usleep(10);
-    n = recv(client->fd, filename, sizeof filename, 0);
+    n = recv(stream->fd, filename, sizeof filename, 0);
     printf("received %d bytes for the filename %s\n", n, filename);
     if (n <= 0) {
       perror("recv raw data filename");
       return;
     }
-    close_client(EV_A_ client);
+    evn_stream_destroy(EV_A_ stream);
     add_to_buffer(filename);
   }
-  else if ('x' == client->type)
+  else if ('x' == stream->type)
   {
-    puts("x - exit");
-    close_client(EV_A_ client);
+    puts("[dummyd] received 'x' (kill) message - exiting");
+    sleep(1);
+    evn_stream_destroy(EV_A_ stream);
     ev_unloop(EV_A_ EVUNLOOP_ALL);
   }
   else
   {
-    fprintf(stderr, "unknown socket type. %d, or '%c' not a valid type.\nIgnoring request\n", client->type, client->type);
-    close_client(EV_A_ client);
+    fprintf(stderr, "unknown socket type. %d, or '%c' not a valid type.\nIgnoring request\n", stream->type, stream->type);
+    evn_stream_destroy(EV_A_ stream);
     exit(EXIT_FAILURE);
   }
 
   /*
-  // Ping back to let the client know the message was received with success
-  if (send(client->fd, ".", strlen("."), 0) < 0) {
+  // Ping back to let the stream know the message was received with success
+  if (send(stream->fd, ".", strlen("."), 0) < 0) {
     perror("send");
   }
   */
   puts("done with loop");
 }
 
-inline static struct sock_ev_client* client_new(int fd) {
-  puts("new client");
-  struct sock_ev_client* client;
+inline struct evn_stream* evn_stream_create(int fd) {
+  puts("new stream");
+  struct evn_stream* stream;
 
-  client = realloc(NULL, sizeof(struct sock_ev_client));
-  client->fd = fd;
-  client->type = 0;
-  setnonblock(client->fd);
-  ev_io_init(&client->io, client_cb, client->fd, EV_READ);
+  stream = realloc(NULL, sizeof(struct evn_stream));
+  stream->fd = fd;
+  stream->type = 0;
+  evn_set_nonblock(stream->fd);
+  ev_io_init(&stream->io, evn_stream_read_priv_cb, stream->fd, EV_READ);
 
   puts(".nc");
-  return client;
+  return stream;
 }
 
 // This callback is called when data is readable on the unix socket.
-static void server_cb(EV_P_ ev_io *w, int revents) {
-  puts("unix stream socket has become readable");
+void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents) {
+  puts("[dummyd] - new connection - EV_READ - deamon fd has become readable");
 
-  int client_fd;
-  struct sock_ev_client* client;
+  int stream_fd;
+  struct evn_stream* stream;
 
   // since ev_io is the first member,
   // watcher `w` has the address of the
-  // start of the sock_ev_serv struct
-  struct sock_ev_serv* server = (struct sock_ev_serv*) w;
+  // start of the evn_server struct
+  struct evn_server* server = (struct evn_server*) w;
 
   while (1)
   {
-    client_fd = accept(server->fd, NULL, NULL);
-    if( client_fd == -1 )
+    stream_fd = accept(server->fd, NULL, NULL);
+    if (stream_fd == -1)
     {
       if( errno != EAGAIN && errno != EWOULDBLOCK )
       {
@@ -389,17 +367,17 @@ static void server_cb(EV_P_ ev_io *w, int revents) {
       }
       break;
     }
-    puts("accepted a client");
-    client = client_new(client_fd);
-    client->server = server;
-    //client->index = array_push(&server->clients, client);
-    ev_io_start(EV_A_ &client->io);
+    puts("accepted a stream");
+    stream = evn_stream_create(stream_fd);
+    stream->server = server;
+    //stream->index = array_push(&server->streams, stream);
+    ev_io_start(EV_A_ &stream->io);
   }
   puts(".us");
 }
 
 // Simply adds O_NONBLOCK to the file descriptor of choice
-int setnonblock(int fd)
+int evn_set_nonblock(int fd)
 {
   int flags;
 
@@ -408,7 +386,7 @@ int setnonblock(int fd)
   return fcntl(fd, F_SETFL, flags);
 }
 
-int unix_socket_init(struct sockaddr_un* socket_un, char* sock_path, int max_queue) {
+int evn_server_unix_create(struct sockaddr_un* socket_un, char* sock_path) {
   int fd;
 
   unlink(sock_path);
@@ -421,7 +399,7 @@ int unix_socket_init(struct sockaddr_un* socket_un, char* sock_path, int max_que
   }
 
   // Set it non-blocking
-  if (-1 == setnonblock(fd)) {
+  if (-1 == evn_set_nonblock(fd)) {
     perror("echo server socket nonblock");
     exit(EXIT_FAILURE);
   }
@@ -433,14 +411,14 @@ int unix_socket_init(struct sockaddr_un* socket_un, char* sock_path, int max_que
   return fd;
 }
 
-int server_init(struct sock_ev_serv* server, char* sock_path, int max_queue) {
+int evn_server_create(struct evn_server* server, char* sock_path, int max_queue) {
 
     struct timeval timeout = {0, 500000}; // 500000 us, ie .5 seconds;
 
-    server->fd = unix_socket_init(&server->socket, sock_path, max_queue);
+    server->fd = evn_server_unix_create(&server->socket, sock_path);
     server->socket_len = sizeof(server->socket.sun_family) + strlen(server->socket.sun_path);
 
-    //array_init(&server->clients, 128);
+    //array_init(&server->streams, 128);
 
     if (-1 == bind(server->fd, (struct sockaddr*) &server->socket, server->socket_len))
     {

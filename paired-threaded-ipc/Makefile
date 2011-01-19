@@ -1,14 +1,14 @@
 CFLAGS=-Wall -Werror -Iinclude -g3 -ggdb3
-LDFLAGS=-lev -lpthread
+LDFLAGS=-lev -lpthread -g3 -ggdb3
 CC=gcc ${CFLAGS} ${LDFLAGS}
 
 all: clean server remote test
 
 server:
-	$(CC) -o dummyd dummy-daemon.c dummy-worker.c dummy-worker-thread.c dummy_settings.c rand.c
+	$(CC) -o dummyd dummy-daemon.c dummy-worker.c dummy-worker-thread.c dummy-settings.c rand.c
 
 remote:
-	$(CC) -o dummy-rc dummy-rc.c dummy_settings.c -Iinclude -lev
+	$(CC) -o dummy-rc dummy-rc.c dummy-settings.c -Iinclude -lev
 
 test:
 	$(CC) -o rand-test rand.c rand-test.c -Iinclude

@@ -98,7 +98,7 @@ static void send_cb (EV_P_ ev_io *w, int revents)
 
   if (revents & EV_WRITE)
   {
-    puts ("daemon ready for writing...");
+    puts ("[dummy-rc] - now ready for writing...");
     if (true == kill_process)
     {
       s_sent1 = send(daemon_fd, "x", sizeof(char), 0);
@@ -107,6 +107,7 @@ static void send_cb (EV_P_ ev_io *w, int revents)
         perror("echo send");
         exit(EXIT_FAILURE);
       }
+      puts ("[dummy-rc] - send kill to daemon");
     }
     else if (true == trigger_process)
     {
@@ -142,6 +143,7 @@ static void send_cb (EV_P_ ev_io *w, int revents)
     // data to send
     close(daemon_fd);
     ev_io_stop(EV_A_ &send_w);
+    puts ("[dummy-rc] - stopped listening - all events completed already");
     ev_unloop(EV_A_ EVUNLOOP_ALL);
     //ev_io_set(&send_w, daemon_fd, EV_READ);
     //ev_io_start(EV_A_ &send_w);
@@ -149,13 +151,15 @@ static void send_cb (EV_P_ ev_io *w, int revents)
   }
   else if (revents & EV_READ)
   {
+    puts ("[dummy-rc] - now ready for reading...");
     // TODO ACK / NACK
   }
 }
 
 static void daemon_cb (EV_P_ ev_io *w, int revents)
 {
-  puts ("connected, now watching stdin");
+  puts ("[dummy-rc] - new connection - now ready to send to dummyd");
+
   // Once the connection is established, listen for writability
   ev_io_start(EV_A_ &send_w);
   // Once we're connected, that's the end of that
@@ -164,7 +168,7 @@ static void daemon_cb (EV_P_ ev_io *w, int revents)
 
 
 // Simply adds O_NONBLOCK to the file descriptor of choice
-int setnonblock(int fd)
+int evn_set_nonblock(int fd)
 {
   int flags;
 
@@ -183,7 +187,7 @@ static int connection_new(EV_P_ char* sock_path) {
   }
 
   // Set it non-blocking
-  if (-1 == setnonblock(daemon_fd)) {
+  if (-1 == evn_set_nonblock(daemon_fd)) {
     perror("echo client socket nonblock");
     exit(EXIT_FAILURE);
   }
