@@ -18,6 +18,15 @@ struct evn_stream;
 struct evn_server;
 struct evn_exception;
 
+#define EVN_SERVER_P struct evn_server* server
+#define EVN_STREAM_P struct evn_stream* stream
+
+// Server Callbacks
+typedef void (evn_server_listen_cb)(EV_P_ struct evn_server* server);
+typedef void (evn_server_connection_cb)(EV_P_ struct evn_server* server, struct evn_stream* stream);
+typedef void (evn_server_close_cb)(EV_P_ struct evn_server* server);
+
+// Client Callbacks
 typedef void (evn_stream_connect_cb)(EV_P_ struct evn_stream* stream);
 typedef void (evn_stream_secure_cb)(EV_P_ struct evn_stream* stream);
 typedef void (evn_stream_data_cb)(EV_P_ struct evn_stream* stream, void* blob, int size);
@@ -35,6 +44,9 @@ struct evn_exception {
 struct evn_server {
   ev_io io;
   int fd;
+  evn_server_listen_cb* listen;
+  evn_server_connection_cb* connection;
+  evn_server_close_cb* close;
   struct sockaddr_un socket;
   int socket_len;
   //array streams;

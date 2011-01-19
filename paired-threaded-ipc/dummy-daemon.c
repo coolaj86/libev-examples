@@ -58,6 +58,7 @@ static void add_to_buffer(char* filename);
 static void test_process_is_not_blocked(EV_P_ ev_periodic *w, int revents);
 static void stream_data(EV_P_ struct evn_stream* stream, void* data, int n);
 static void stream_close(EV_P_ struct evn_stream* stream, bool had_error);
+static void server_connection(EV_P_ struct evn_server* server, struct evn_stream* stream);
 
 const char* argp_program_version = "ACME DummyServe v1.0 (Alphabet Animal)";
 const char* argp_program_bug_address = "<bugs@example.com>";
@@ -205,6 +206,8 @@ int main (int argc, char* argv[])
   signal(SIGTERM, clean_shutdown);
   signal(SIGINT,  clean_shutdown);
   
+  server.connection = server_connection;
+
   // Get notified whenever the socket is ready to read
   ev_io_init(&server.io, evn_server_connection_priv_cb, server.fd, EV_READ);
   ev_io_start(EV_A_ &server.io);
@@ -296,9 +299,17 @@ void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents)
   }
 }
 
+static void server_connection(EV_P_ struct evn_server* server, struct evn_stream* stream)
+{
+  puts("[Server CB] accepted a stream");
+  stream->data = stream_data;
+  stream->close = stream_close;
+  stream->server = server;
+}
+
 void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents)
 {
-  puts("[dummyd] - new connection - EV_READ - deamon fd has become readable");
+  puts("[EVN] - new connection - EV_READ - deamon fd has become readable");
 
   int stream_fd;
   struct evn_stream* stream;
@@ -320,15 +331,13 @@ void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents)
       }
       break;
     }
-    puts("accepted a stream");
+    puts("[EVN] new stream");
     stream = evn_stream_create(stream_fd);
-    stream->data = stream_data;
-    stream->close = stream_close;
-    stream->server = server;
+    if (server->connection) { server->connection(EV_A_ server, stream); }
     //stream->index = array_push(&server->streams, stream);
     ev_io_start(EV_A_ &stream->io);
   }
-  puts(".us");
+  puts("[EVN] finished accepting connections.");
 }
 
 // Simply adds O_NONBLOCK to the file descriptor of choice
