@@ -12,6 +12,26 @@
 
 #include <ev.h>
 
+#include "bool.h"
+
+struct evn_stream;
+struct evn_server;
+struct evn_exception;
+
+typedef void (evn_stream_connect_cb)(EV_P_ struct evn_stream* stream);
+typedef void (evn_stream_secure_cb)(EV_P_ struct evn_stream* stream);
+typedef void (evn_stream_data_cb)(EV_P_ struct evn_stream* stream, void* blob, int size);
+typedef void (evn_stream_end_cb)(EV_P_ struct evn_stream* stream);
+typedef void (evn_stream_timeout_cb)(EV_P_ struct evn_stream* stream);
+typedef void (evn_stream_drain_cb)(EV_P_ struct evn_stream* stream);
+typedef void (evn_stream_error_cb)(EV_P_ struct evn_stream* stream, struct evn_exception* error);
+typedef void (evn_stream_close_cb)(EV_P_ struct evn_stream* stream, bool had_error);
+
+struct evn_exception {
+  int error_number;
+  char message[256];
+};
+
 struct evn_server {
   ev_io io;
   int fd;
@@ -23,6 +43,14 @@ struct evn_server {
 struct evn_stream {
   ev_io io;
   int fd;
+  evn_stream_connect_cb* connect;
+  evn_stream_secure_cb* secure;
+  evn_stream_data_cb* data;
+  evn_stream_end_cb* end;
+  evn_stream_timeout_cb* timeout;
+  evn_stream_drain_cb* drain;
+  evn_stream_error_cb* error;
+  evn_stream_close_cb* close;
   int index;
   struct evn_server* server;
   char type;
@@ -30,7 +58,7 @@ struct evn_stream {
 
 
 int evn_set_nonblock(int fd);
-inline static struct evn_stream* evn_stream_create(int fd);
+struct evn_stream* evn_stream_create(int fd);
 int evn_server_unix_create(struct sockaddr_un* socket_un, char* sock_path);
 int evn_server_create(struct evn_server* server, char* sock_path, int max_queue);
 int evn_stream_destroy(EV_P_ struct evn_stream* stream);

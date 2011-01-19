@@ -28,21 +28,13 @@
 //the server for the socket we get the triggers and settings over
 static struct evn_server server;
 
-int evn_stream_destroy(EV_P_ struct evn_stream* stream)
-{
-  puts("[dummyd] orderly disconnect");
-  ev_io_stop(EV_A_ &stream->io);
-  close(stream->fd);
-  free(stream);
-  return 0;
-}
-
 
 inline struct evn_stream* evn_stream_create(int fd) {
   puts("[dummyd] new stream");
   struct evn_stream* stream;
 
-  stream = realloc(NULL, sizeof(struct evn_stream));
+  //stream = realloc(NULL, sizeof(struct evn_stream));
+  stream = calloc(1, sizeof(struct evn_stream));
   stream->fd = fd;
   stream->type = 0;
   evn_set_nonblock(stream->fd);
@@ -64,6 +56,8 @@ inline struct evn_stream* evn_stream_create(int fd) {
 void clean_shutdown(int sig);
 static void add_to_buffer(char* filename);
 static void test_process_is_not_blocked(EV_P_ ev_periodic *w, int revents);
+static void stream_data(EV_P_ struct evn_stream* stream, void* data, int n);
+static void stream_close(EV_P_ struct evn_stream* stream, bool had_error);
 
 const char* argp_program_version = "ACME DummyServe v1.0 (Alphabet Animal)";
 const char* argp_program_bug_address = "<bugs@example.com>";
@@ -277,7 +271,33 @@ static void add_to_buffer(char* filename)
 
 
 // This callback is called when data is readable on the unix socket.
-void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents) {
+void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents)
+{
+  char data[4096];
+  struct evn_exception error;
+  int length;
+  struct evn_stream* stream = (struct evn_stream*) w;
+
+  puts("[EVN] - new connection - EV_READ - daemon fd has become readable");
+  length = recv(stream->fd, &data, 4096, 0);
+
+  if (length < 0)
+  {
+    if (stream->error) { stream->error(EV_A_ stream, &error); }
+  }
+  else if (0 == length)
+  {
+    if (stream->close) { stream->close(EV_A_ stream, false); }
+    evn_stream_destroy(EV_A_ stream);
+  }
+  else if (length > 0)
+  {
+    if (stream->data) { stream->data(EV_A_ stream, data, length); }
+  }
+}
+
+void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents)
+{
   puts("[dummyd] - new connection - EV_READ - deamon fd has become readable");
 
   int stream_fd;
@@ -302,6 +322,8 @@ void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents) {
     }
     puts("accepted a stream");
     stream = evn_stream_create(stream_fd);
+    stream->data = stream_data;
+    stream->close = stream_close;
     stream->server = server;
     //stream->index = array_push(&server->streams, stream);
     ev_io_start(EV_A_ &stream->io);
@@ -372,14 +394,21 @@ int evn_server_create(struct evn_server* server, char* sock_path, int max_queue)
     return 0;
 }
 
-// This callback is called when stream data is available
-void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents) {
-  char filename[32];
-  int n;
-  struct evn_stream* stream = (struct evn_stream*) w;
+static void stream_close(EV_P_ struct evn_stream* stream, bool had_error)
+{
+  puts("[Stream CB] Close");
+}
 
-  char c[1024];
-  n = recv(stream->fd, &c, 1024, MSG_TRUNC | MSG_PEEK);
+// This callback is called when stream data is available
+static void stream_data(EV_P_ struct evn_stream* stream, void* data, int n)
+{
+  char filename[32];
+  char* cdata = (char*) data;
+  //int n;
+  //struct evn_stream* stream = (struct evn_stream*) w;
+
+  //char c[1024];
+  //n = recv(stream->fd, &c, 1024, MSG_TRUNC | MSG_PEEK);
   printf("[dummyd] - new data - EV_READ - stream has become readable (%d bytes)\n", n);
   if (n < 0)
   {
@@ -389,7 +418,9 @@ void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents) {
   if(0 == stream->type)
   {
     printf("[r]");
-    n = recv(stream->fd, &(stream->type), sizeof (stream->type), 0);
+    stream->type = cdata[0];
+    cdata += 1;
+    //n = recv(stream->fd, &(stream->type), sizeof (stream->type), 0);
     printf("[dummyd] '0' read %d bytes\n", n);
     if (n <= 0) {
       if (0 == n) {
@@ -409,7 +440,8 @@ void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents) {
     usleep(10);
 
     pthread_mutex_lock(&(thread_control.settings_lock));
-    n = recv(stream->fd, &dummy_settings, sizeof dummy_settings, 0);
+    //n = recv(stream->fd, &dummy_settings, sizeof dummy_settings, 0);
+    memcpy(&dummy_settings, cdata, sizeof dummy_settings);
     printf("[dummyd] 'g' read %d bytes\n", n);
     pthread_mutex_unlock(&(thread_control.settings_lock));
 
@@ -417,7 +449,7 @@ void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents) {
       perror("recv dummy struct");
       return;
     }
-    evn_stream_destroy(EV_A_ stream);
+    //evn_stream_destroy(EV_A_ stream);
 
     // tell the DPROC thread to copy the settings from the pointers we gave it
     ev_async_send(thread_control.EV_A, &(thread_control.update_settings));
@@ -427,27 +459,27 @@ void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents) {
     memset(filename, 0, sizeof filename);
     puts("[dummyd] . - process new data (same settings)");
     usleep(10);
-    n = recv(stream->fd, filename, sizeof filename, 0);
-    printf("[dummyd] '.' read %d bytes\n", n);
-    printf("received %d bytes for the filename %s\n", n, filename);
+    //n = recv(stream->fd, filename, sizeof filename, 0);
+    memcpy(filename, cdata, sizeof filename);
+    printf("[dummyd] '.' read %d bytes for the filename %s\n", n, filename);
     if (n <= 0) {
       perror("recv raw data filename");
       return;
     }
-    evn_stream_destroy(EV_A_ stream);
+    //evn_stream_destroy(EV_A_ stream);
     add_to_buffer(filename);
   }
   else if ('x' == stream->type)
   {
     puts("[dummyd] received 'x' (kill) message - exiting");
     sleep(1);
-    evn_stream_destroy(EV_A_ stream);
+    //evn_stream_destroy(EV_A_ stream);
     ev_unloop(EV_A_ EVUNLOOP_ALL);
   }
   else
   {
     fprintf(stderr, "unknown socket type. %d, or '%c' not a valid type.\nIgnoring request\n", stream->type, stream->type);
-    evn_stream_destroy(EV_A_ stream);
+    //evn_stream_destroy(EV_A_ stream);
     exit(EXIT_FAILURE);
   }
 

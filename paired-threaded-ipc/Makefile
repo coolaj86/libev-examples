@@ -5,10 +5,10 @@ CC=gcc ${CFLAGS} ${LDFLAGS}
 all: clean server remote test
 
 server:
-	$(CC) -o dummyd dummy-daemon.c dummy-worker.c dummy-worker-thread.c dummy-settings.c rand.c
+	$(CC) -o dummyd evn.c dummy-daemon.c dummy-worker.c dummy-worker-thread.c dummy-settings.c rand.c
 
 remote:
-	$(CC) -o dummy-rc dummy-rc.c dummy-settings.c -Iinclude -lev
+	$(CC) -o dummy-rc evn.c dummy-rc.c dummy-settings.c -Iinclude -lev
 
 test:
 	$(CC) -o rand-test rand.c rand-test.c -Iinclude
