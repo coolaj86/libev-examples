@@ -20,15 +20,18 @@ inline static struct sockaddr_un* evn_sockaddr_un_new();
 inline static int evn_server_unix_create(int* fd, struct sockaddr_un* socket_un, char* sock_path);
 inline static struct sockaddr_in* evn_sockaddr_in_new();
 inline static int evn_server_ipv4_create(int* fd, struct sockaddr_in* socket_in, int port, char* sock_path);
-inline static void evn_stream_read_priv_cb(EV_P_ ev_io* w, int revents);
+
 static int evn_server_bind(EVN_SRV_P);
 
 // Private Callbacks
-inline static void evn_server_listen_priv_cb(EV_P_ ev_io* w, int revents);
+static void evn_server_listen_priv_cb(EV_P_ ev_io* w, int revents);
+static void evn_stream_read_priv_cb(EV_P_ ev_io* w, int revents);
+static void evn_server_connection_priv_cb(EV_P_ ev_io* w, int revents);
 
 inline static struct evn_stream*
 evn_stream_new()
 {
+  evn_debug("calloc'd new stream\n");
   return (struct evn_stream*) calloc(1, sizeof(struct evn_stream));
 }
 
@@ -84,6 +87,8 @@ evn_server_create(EV_P_ struct evn_server_callbacks callbacks)
 int
 evn_server_listen(EVN_SRV_P, int port, char* address)
 {
+  evn_debugs("binding...");
+
   if (0 == port)
   {
     EVN_SRV_A->priv.socket = (struct sockaddr*) evn_sockaddr_un_new();
@@ -107,13 +112,17 @@ evn_server_listen(EVN_SRV_P, int port, char* address)
 
   evn_server_bind(EVN_SRV_A);
 
+  evn_debugs(" bound");
+
   return 0;
 }
 
-inline static void
+static void
 evn_server_listen_priv_cb(EV_P_ ev_io* w, int revents)
 {
   EVN_SRV_P = (struct evn_server*) w;
+
+  evn_debugs("listen");
 
   if (NULL != EVN_SRV_A->priv.callbacks.listen)
   {
@@ -121,14 +130,18 @@ evn_server_listen_priv_cb(EV_P_ ev_io* w, int revents)
   }
 
   ev_io_stop(EVN_SRV_A->EV_A_ &EVN_SRV_A->io);
+  ev_io_init(&EVN_SRV_A->io, evn_server_connection_priv_cb, EVN_SRV_A->fd, EV_READ);
+  ev_io_start(EVN_SRV_A->EV_A_ &EVN_SRV_A->io);
 }
 
-void
-evn_server_connection_cb(EV_P_ ev_io* w, int revents)
+static void
+evn_server_connection_priv_cb(EV_P_ ev_io* w, int revents)
 {
   EVN_SRV_P = (struct evn_server*) w;
   EVN_STR_P;
   int stream_fd;
+
+  evn_debugs("connection");
   
   while(true)
   {
@@ -140,18 +153,19 @@ evn_server_connection_cb(EV_P_ ev_io* w, int revents)
         fprintf(stderr, "accept() failed errno=%i (%s)", errno, strerror(errno));
         exit(EXIT_FAILURE);
       }
-      puts("done accepting");
+      evn_debugs("done accepting");
       return;
     }
-    puts("accepted a client");
     EVN_STR_A = evn_stream_create(EVN_SRV_A->fd);
     EVN_STR_A->EVN_SRV_A = EVN_SRV_A;
     if (NULL != EVN_SRV_A->priv.callbacks.connection)
     {
       EVN_SRV_A->priv.callbacks.connection(EVN_SRV_A_ EVN_STR_A);
     }
-    //client->index = array_push(&server->clients, client);
+    // user callbacks assigned in step above, then start
     ev_io_start(EVN_SRV_A->EV_A_ &EVN_STR_A->io);
+    //client->index = array_push(&server->clients, client);
+    evn_debugs("added EV_READ callback to new stream");
   }
 }
 
@@ -174,7 +188,7 @@ evn_server_bind(EVN_SRV_P)
   }
   */
 
-  if (-1 == bind(EVN_SRV_A->fd, (struct sockaddr*) &EVN_SRV_A->priv.socket, EVN_SRV_A->priv.socket_len))
+  if (-1 == bind(EVN_SRV_A->fd, EVN_SRV_A->priv.socket, EVN_SRV_A->priv.socket_len))
   {
     perror("echo server bind");
     exit(EXIT_FAILURE);
@@ -245,27 +259,42 @@ evn_server_ipv4_create(int* fd, struct sockaddr_in* socket_in, int port, char* i
 inline static struct evn_stream*
 evn_stream_create(int stream_fd)
 {
-  puts("new client");
   EVN_STR_P;
+
+  evn_debugs("creating stream...");
 
   EVN_STR_A = evn_stream_new();
   EVN_STR_A->fd = stream_fd;
   evn_set_nonblock(EVN_STR_A->fd);
   ev_io_init(&EVN_STR_A->io, evn_stream_read_priv_cb, EVN_STR_A->fd, EV_READ);
 
-  puts(".nc");
+  evn_debugs(" ...stream created");
+
   return EVN_STR_A;
 }
 
-inline static void
+static void
 evn_stream_read_priv_cb(EV_P_ ev_io* w, int revents)
 {
   int length;
   //struct evn_data* data;
   EVN_STR_P = (struct evn_stream*) w;
 
-  length = recv(EVN_STR_A->fd, NULL, 0, MSG_TRUNC);
+  evn_debugs("read begun");
+
+  char xyz[256];
+
+  // Bad File Descriptor
+  //length = recv(123, NULL, 0, MSG_TRUNC | MSG_DONTWAIT);
+  length = recv(EVN_STR_A->fd, (void *) xyz, (size_t) 15, 0);
+  //length = recv(EVN_STR_A->fd, NULL, 0, MSG_TRUNC | MSG_DONTWAIT);
+  if (length < 0)
+  {
+    perror("recv'ing read buffer");
+  }
+  evn_debug("length: %i\n" ,length);
   if (0 == length) {
+    evn_debugs("stream received FIN");
     if (NULL != EVN_STR_A->callbacks.end)
     {
       EVN_STR_A->callbacks.end(EVN_STR_A->EVN_SRV_A_ EVN_STR_A);
@@ -281,6 +310,7 @@ evn_stream_read_priv_cb(EV_P_ ev_io* w, int revents)
   
   if (length > 0 && NULL != EVN_STR_A->callbacks.data)
   {
+    evn_debugs("stream received DATA");
     /*
     data = evn_data_new(length);
     if (length != recv(EVN_STR_A->fd, data, length, 0))
@@ -299,6 +329,8 @@ inline void
 evn_stream_close(EVN_STR_P)
 {
   int result;
+
+  evn_debugs("user closed stream");
 
   ev_io_stop(EVN_STR_A->EVN_SRV_A->EV_A_ &EVN_STR_A->io);
   result = close(EVN_STR_A->fd);

@@ -7,6 +7,24 @@
 #include <ev.h>
 #include "bool.h"
 
+#define EVN_DEBUG 1
+
+#ifndef EVN_DEBUG
+  #if defined DEBUG
+    #define EVN_DEBUG 1
+  #else
+    #define EVN_DEBUG 0
+  #endif
+#endif
+
+#if EVN_DEBUG
+  #define evn_debug(...) printf("[EVN] " __VA_ARGS__)
+  #define evn_debugs(...) puts("[EVN] " __VA_ARGS__)
+#else
+  #define evn_debug(...)
+  #define evn_debugs(...)
+#endif
+
 // Forward Declaration to circumvent Cirular Reference
 struct evn_exception;
 struct evn_server;
