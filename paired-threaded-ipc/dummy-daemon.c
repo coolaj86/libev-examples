@@ -26,7 +26,7 @@
 //
 
 //the server for the socket we get the triggers and settings over
-static struct evn_server server;
+//static struct evn_server server;
 
 
 inline struct evn_stream* evn_stream_create(int fd) {
@@ -105,7 +105,7 @@ void clean_shutdown(int sig) {
   void* exit_status;
   
   fprintf(stderr, "Received signal %d, shutting down\n", sig);
-  close(server.fd);
+  // TODO handle signal close(server.fd);
   ev_async_send(thread_control.EV_A, &(thread_control.cleanup));
   
   //this will block until the dsp_thread exits, at which point we will continue with out shutdown.
@@ -122,6 +122,7 @@ int main (int argc, char* argv[])
 {
   pthread_attr_t attr;
   int thread_status;
+  struct evn_server* server;
 
   dummy_settings_set_presets(&dummy_settings);
 
@@ -195,22 +196,22 @@ int main (int argc, char* argv[])
 
   // Create unix socket in non-blocking fashion
   #ifdef TI_DPROC
-    evn_server_create(&server, "/tmp/libev-ipc-daemon.sock", max_queue);
+    server = evn_server_create(EV_A_ "/tmp/libev-ipc-daemon.sock", max_queue);
   #else
     char socket_address[256];
     snprintf(socket_address, sizeof socket_address, "/tmp/libev-ipc-daemon.sock%d", (int)getuid());
-    evn_server_create(&server, socket_address, max_queue);
+    server = evn_server_create(EV_A_ socket_address, max_queue);
   #endif
   
   signal(SIGQUIT, clean_shutdown);
   signal(SIGTERM, clean_shutdown);
   signal(SIGINT,  clean_shutdown);
   
-  server.connection = server_connection;
+  server->connection = server_connection;
 
   // Get notified whenever the socket is ready to read
-  ev_io_init(&server.io, evn_server_connection_priv_cb, server.fd, EV_READ);
-  ev_io_start(EV_A_ &server.io);
+  ev_io_init(&server->io, evn_server_connection_priv_cb, server->fd, EV_READ);
+  ev_io_start(EV_A_ &server->io);
   
   // Run our loop, until we recieve the QUIT, TERM or INT signals, or an 'x' over the socket.
   puts("[dummyd] unix-socket-echo starting...\n");
@@ -375,10 +376,20 @@ int evn_server_unix_create(struct sockaddr_un* socket_un, char* sock_path) {
   return fd;
 }
 
-int evn_server_create(struct evn_server* server, char* sock_path, int max_queue) {
+int evn_server_destroy(EV_P_ struct evn_server* server)
+{
+  if (server->close) { server->close(server->EV_A_ server); }
+  ev_io_stop(server->EV_A_ &server->io);
+  free(server);
+  return 0;
+}
 
+struct evn_server* evn_server_create(EV_P_ char* sock_path, int max_queue)
+{
     struct timeval timeout = {0, 500000}; // 500000 us, ie .5 seconds;
+    struct evn_server* server = calloc(1, sizeof(struct evn_server));
 
+    server->EV_A = EV_A;
     server->fd = evn_server_unix_create(&server->socket, sock_path);
     server->socket_len = sizeof(server->socket.sun_family) + strlen(server->socket.sun_path);
 
@@ -400,7 +411,7 @@ int evn_server_create(struct evn_server* server, char* sock_path, int max_queue)
       exit(EXIT_FAILURE);
     }
     printf("set the receive timeout to %lf\n", ((double)timeout.tv_sec+(1.e-6)*timeout.tv_usec));
-    return 0;
+    return server;
 }
 
 static void stream_close(EV_P_ struct evn_stream* stream, bool had_error)

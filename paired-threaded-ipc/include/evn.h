@@ -44,6 +44,7 @@ struct evn_exception {
 struct evn_server {
   ev_io io;
   int fd;
+  EV_P;
   evn_server_listen_cb* listen;
   evn_server_connection_cb* connection;
   evn_server_close_cb* close;
@@ -65,6 +66,7 @@ struct evn_stream {
   evn_stream_close_cb* close;
   int index;
   struct evn_server* server;
+  EV_P;
   char type;
 };
 
@@ -72,7 +74,9 @@ struct evn_stream {
 int evn_set_nonblock(int fd);
 struct evn_stream* evn_stream_create(int fd);
 int evn_server_unix_create(struct sockaddr_un* socket_un, char* sock_path);
-int evn_server_create(struct evn_server* server, char* sock_path, int max_queue);
+struct evn_server* evn_server_create(EV_P_ char* sock_path, int max_queue);
+
+int evn_server_destroy(EV_P_ struct evn_server* server);
 int evn_stream_destroy(EV_P_ struct evn_stream* stream);
 
 void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents);
