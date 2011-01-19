@@ -21,6 +21,44 @@
 
 #define LOG_PATH "/tmp/"
 
+//
+// Network
+//
+
+//the server for the socket we get the triggers and settings over
+static struct evn_server server;
+
+int evn_stream_destroy(EV_P_ struct evn_stream* stream)
+{
+  puts("[dummyd] orderly disconnect");
+  ev_io_stop(EV_A_ &stream->io);
+  close(stream->fd);
+  free(stream);
+  return 0;
+}
+
+
+inline struct evn_stream* evn_stream_create(int fd) {
+  puts("[dummyd] new stream");
+  struct evn_stream* stream;
+
+  stream = realloc(NULL, sizeof(struct evn_stream));
+  stream->fd = fd;
+  stream->type = 0;
+  evn_set_nonblock(stream->fd);
+  ev_io_init(&stream->io, evn_stream_read_priv_cb, stream->fd, EV_READ);
+
+  puts("[dummyd] .nc");
+  return stream;
+}
+
+
+
+
+//
+//
+//
+
 
 //Function Prototypes
 void clean_shutdown(int sig);
@@ -39,9 +77,6 @@ static bool redirect = false;
 
 static pthread_t dsp_thread;
 static struct DPROC_THREAD_CONTROL thread_control;
-
-//the server for the socket we get the triggers and settings over
-static struct evn_server server;
 
 // Create our single-loop for this single-thread application
 EV_P;
@@ -81,7 +116,7 @@ void clean_shutdown(int sig) {
   //this will block until the dsp_thread exits, at which point we will continue with out shutdown.
   pthread_join(dsp_thread, &exit_status);
   ev_loop_destroy (EV_DEFAULT_UC);
-  puts("Dummy cleanup finished.");
+  puts("[dummyd] Dummy cleanup finished.");
   exit(EXIT_SUCCESS);
 }
 
@@ -181,7 +216,7 @@ int main (int argc, char* argv[])
   ev_io_start(EV_A_ &server.io);
   
   // Run our loop, until we recieve the QUIT, TERM or INT signals, or an 'x' over the socket.
-  puts("unix-socket-echo starting...\n");
+  puts("[dummyd] unix-socket-echo starting...\n");
   ev_loop(EV_A_ 0);
 
   // This point is only ever reached if the loop is manually exited
@@ -240,108 +275,6 @@ static void add_to_buffer(char* filename)
   ev_async_send(thread_control.EV_A, &(thread_control.process_data));
 }
 
-int evn_stream_destroy(EV_P_ struct evn_stream* stream)
-{
-  puts("orderly disconnect");
-  ev_io_stop(EV_A_ &stream->io);
-  close(stream->fd);
-  free(stream);
-  return 0;
-}
-
-// This callback is called when stream data is available
-void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents) {
-  puts("[dummyd] - new data - EV_READ - stream has become readable");
-
-  struct evn_stream* stream = (struct evn_stream*) w;
-
-  char filename[32];
-  int n;
-
-  if(0 == stream->type)
-  {
-    printf("[r]");
-    n = recv(stream->fd, &(stream->type), sizeof (stream->type), 0);
-    if (n <= 0) {
-      if (0 == n) {
-        // an orderly disconnect
-        evn_stream_destroy(EV_A_ stream);
-      } else if (EAGAIN == errno) {
-        fprintf(stderr, "should never get in this state (EAGAIN) with libev\n");
-      } else {
-        perror("recv type");
-      }
-      return;
-    }
-  }
-
-  if ('g' == stream->type) {
-    puts("g - dummy_settings");
-    usleep(10);
-
-    pthread_mutex_lock(&(thread_control.settings_lock));
-    n = recv(stream->fd, &dummy_settings, sizeof dummy_settings, 0);
-    pthread_mutex_unlock(&(thread_control.settings_lock));
-
-    if (sizeof dummy_settings != n) {
-      perror("recv dummy struct");
-      return;
-    }
-    evn_stream_destroy(EV_A_ stream);
-
-    // tell the DPROC thread to copy the settings from the pointers we gave it
-    ev_async_send(thread_control.EV_A, &(thread_control.update_settings));
-  }
-  else if ('.' == stream->type)
-  {
-    memset(filename, 0, sizeof filename);
-    puts(". - process new data (same settings)");
-    usleep(10);
-    n = recv(stream->fd, filename, sizeof filename, 0);
-    printf("received %d bytes for the filename %s\n", n, filename);
-    if (n <= 0) {
-      perror("recv raw data filename");
-      return;
-    }
-    evn_stream_destroy(EV_A_ stream);
-    add_to_buffer(filename);
-  }
-  else if ('x' == stream->type)
-  {
-    puts("[dummyd] received 'x' (kill) message - exiting");
-    sleep(1);
-    evn_stream_destroy(EV_A_ stream);
-    ev_unloop(EV_A_ EVUNLOOP_ALL);
-  }
-  else
-  {
-    fprintf(stderr, "unknown socket type. %d, or '%c' not a valid type.\nIgnoring request\n", stream->type, stream->type);
-    evn_stream_destroy(EV_A_ stream);
-    exit(EXIT_FAILURE);
-  }
-
-  /*
-  // Ping back to let the stream know the message was received with success
-  if (send(stream->fd, ".", strlen("."), 0) < 0) {
-    perror("send");
-  }
-  */
-  puts("done with loop");
-}
-
-inline struct evn_stream* evn_stream_create(int fd) {
-  puts("new stream");
-  struct evn_stream* stream;
-
-  stream = realloc(NULL, sizeof(struct evn_stream));
-  stream->fd = fd;
-  stream->type = 0;
-  evn_set_nonblock(stream->fd);
-  ev_io_init(&stream->io, evn_stream_read_priv_cb, stream->fd, EV_READ);
-
-  puts(".nc");
-  return stream;
-}
 
 // This callback is called when data is readable on the unix socket.
 void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents) {
@@ -437,4 +370,92 @@ int evn_server_create(struct evn_server* server, char* sock_path, int max_queue)
     }
     printf("set the receive timeout to %lf\n", ((double)timeout.tv_sec+(1.e-6)*timeout.tv_usec));
     return 0;
+}
+
+// This callback is called when stream data is available
+void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents) {
+  char filename[32];
+  int n;
+  struct evn_stream* stream = (struct evn_stream*) w;
+
+  char c[1024];
+  n = recv(stream->fd, &c, 1024, MSG_TRUNC | MSG_PEEK);
+  printf("[dummyd] - new data - EV_READ - stream has become readable (%d bytes)\n", n);
+  if (n < 0)
+  {
+    perror("recv err");
+  }
+
+  if(0 == stream->type)
+  {
+    printf("[r]");
+    n = recv(stream->fd, &(stream->type), sizeof (stream->type), 0);
+    printf("[dummyd] '0' read %d bytes\n", n);
+    if (n <= 0) {
+      if (0 == n) {
+        // an orderly disconnect
+        evn_stream_destroy(EV_A_ stream);
+      } else if (EAGAIN == errno) {
+        fprintf(stderr, "should never get in this state (EAGAIN) with libev\n");
+      } else {
+        perror("recv type");
+      }
+      return;
+    }
+  }
+
+  if ('g' == stream->type) {
+    puts("[dummyd] g - dummy_settings");
+    usleep(10);
+
+    pthread_mutex_lock(&(thread_control.settings_lock));
+    n = recv(stream->fd, &dummy_settings, sizeof dummy_settings, 0);
+    printf("[dummyd] 'g' read %d bytes\n", n);
+    pthread_mutex_unlock(&(thread_control.settings_lock));
+
+    if (sizeof dummy_settings != n) {
+      perror("recv dummy struct");
+      return;
+    }
+    evn_stream_destroy(EV_A_ stream);
+
+    // tell the DPROC thread to copy the settings from the pointers we gave it
+    ev_async_send(thread_control.EV_A, &(thread_control.update_settings));
+  }
+  else if ('.' == stream->type)
+  {
+    memset(filename, 0, sizeof filename);
+    puts("[dummyd] . - process new data (same settings)");
+    usleep(10);
+    n = recv(stream->fd, filename, sizeof filename, 0);
+    printf("[dummyd] '.' read %d bytes\n", n);
+    printf("received %d bytes for the filename %s\n", n, filename);
+    if (n <= 0) {
+      perror("recv raw data filename");
+      return;
+    }
+    evn_stream_destroy(EV_A_ stream);
+    add_to_buffer(filename);
+  }
+  else if ('x' == stream->type)
+  {
+    puts("[dummyd] received 'x' (kill) message - exiting");
+    sleep(1);
+    evn_stream_destroy(EV_A_ stream);
+    ev_unloop(EV_A_ EVUNLOOP_ALL);
+  }
+  else
+  {
+    fprintf(stderr, "unknown socket type. %d, or '%c' not a valid type.\nIgnoring request\n", stream->type, stream->type);
+    evn_stream_destroy(EV_A_ stream);
+    exit(EXIT_FAILURE);
+  }
+
+  /*
+  // Ping back to let the stream know the message was received with success
+  if (send(stream->fd, ".", strlen("."), 0) < 0) {
+    perror("send");
+  }
+  */
+  puts("[dummyd] done with loop");
 }
