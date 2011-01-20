@@ -10,6 +10,9 @@ server:
 remote:
 	$(CC) -o dummy-rc evn.c dummy-rc.c dummy-settings.c -Iinclude -lev
 
+buffer:
+	$(CC) -o buffer-list-test buffer-list-test.c buffer-list.c
+
 test:
 	$(CC) -o rand-test rand.c rand-test.c -Iinclude
 	$(CC) -o dummy-worker-test dummy-worker-test.c dummy-worker.c rand.c -Iinclude
