@@ -96,7 +96,7 @@ struct evn_stream {
 
 int evn_set_nonblock(int fd);
 struct evn_stream* evn_stream_create(int fd);
-struct evn_server* evn_server_create(EV_P_ char* sock_path, int max_queue);
+struct evn_server* evn_server_create(EV_P_ evn_server_connection_cb* on_connect);
 
 int evn_server_destroy(EV_P_ struct evn_server* server);
 int evn_stream_destroy(EV_P_ struct evn_stream* stream);
@@ -104,5 +104,5 @@ int evn_stream_destroy(EV_P_ struct evn_stream* stream);
 void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents);
 void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents);
 
-int evn_server_listen(struct evn_server* server);
+int evn_server_listen(struct evn_server* server, char* sock_path);
 #endif

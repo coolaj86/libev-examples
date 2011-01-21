@@ -130,7 +130,6 @@ int main (int argc, char* argv[])
   pthread_attr_t attr;
   int thread_status;
   struct evn_server* server;
-  int max_queue = 128;
   char socket_address[256];
   EV_A = ev_default_loop(0);
 
@@ -177,11 +176,11 @@ int main (int argc, char* argv[])
 
 
   // Create unix socket in non-blocking fashion
-  snprintf(socket_address, sizeof(socket_address), "/tmp/libev-ipc-daemon.%d.sock", (int)getuid());
+  snprintf(socket_address, sizeof(socket_address), DUMMYD_SOCK, (int)getuid());
   unlink(socket_address);
-  server = evn_server_create(EV_A_ socket_address, max_queue);
+  server = evn_server_create(EV_A_ server_on_connection);
   server->connection = server_on_connection;
-  evn_server_listen(server);
+  evn_server_listen(server, socket_address);
 
   // Run our loop, until we recieve the QUIT, TERM or INT signals, or an 'x' over the socket.
   puts("[Daemon] Looping.\n");
