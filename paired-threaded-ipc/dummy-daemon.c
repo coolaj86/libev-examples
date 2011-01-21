@@ -47,7 +47,7 @@ EV_P;
 
 /* The options we understand. */
 static struct argp_option options[] = {
-  #include "dummy_settings_argp_option.c"
+#include "dummy_settings_argp_option.c"
   { 0 }
 };
 
@@ -56,27 +56,27 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 {
   switch (key)
   {
-    #include "dummy_settings_parse_opt.c"
+#include "dummy_settings_parse_opt.c"
 
     case ARGP_KEY_ARG:
       return ARGP_ERR_UNKNOWN;
-      
+
     case ARGP_KEY_END:
       break;
 
     default:
       return ARGP_ERR_UNKNOWN;
-   }
+  }
   return 0;
 }
 
 void clean_shutdown(int sig) {
   void* exit_status;
-  
+
   fprintf(stderr, "Received signal %d, shutting down\n", sig);
   // TODO handle signal close(server.fd);
   ev_async_send(thread_control.EV_A, &(thread_control.cleanup));
-  
+
   //this will block until the dsp_thread exits, at which point we will continue with out shutdown.
   pthread_join(dsp_thread, &exit_status);
   ev_loop_destroy (EV_DEFAULT_UC);
@@ -97,7 +97,7 @@ int main (int argc, char* argv[])
 
   // Parse our arguments; every option seen by parse_opt will be reflected in settings.
   argp_parse (&argp, argc, argv, 0, 0, &dummy_settings);
-  
+
   if (true == redirect)
   {
     //these lines are to direct the stdout and stderr to log files we can access even when run as a daemon (after the possible help info is displayed.)
@@ -130,12 +130,12 @@ int main (int argc, char* argv[])
 
   if (0)
   {
-  struct ev_periodic every_few_seconds;
-  
+    struct ev_periodic every_few_seconds;
 
-  // To be sure that we aren't actually blocking
-  ev_periodic_init(&every_few_seconds, test_process_is_not_blocked, 0, 1, 0);
-  ev_periodic_start(EV_A_ &every_few_seconds);
+
+    // To be sure that we aren't actually blocking
+    ev_periodic_init(&every_few_seconds, test_process_is_not_blocked, 0, 1, 0);
+    ev_periodic_start(EV_A_ &every_few_seconds);
   }
 
   // Set the priority of this whole process higher (requires root)
@@ -164,25 +164,25 @@ int main (int argc, char* argv[])
 
 
   // Create unix socket in non-blocking fashion
-  #ifdef TI_DPROC
-    server = evn_server_create(EV_A_ "/tmp/libev-ipc-daemon.sock", max_queue);
-  #else
-    char socket_address[256];
-    snprintf(socket_address, sizeof socket_address, "/tmp/libev-ipc-daemon.sock%d", (int)getuid());
-    server = evn_server_create(EV_A_ socket_address, max_queue);
-  #endif
-  
+#ifdef TI_DPROC
+  server = evn_server_create(EV_A_ "/tmp/libev-ipc-daemon.sock", max_queue);
+#else
+  char socket_address[256];
+  snprintf(socket_address, sizeof socket_address, "/tmp/libev-ipc-daemon.sock%d", (int)getuid());
+  server = evn_server_create(EV_A_ socket_address, max_queue);
+#endif
+
   signal(SIGQUIT, clean_shutdown);
   signal(SIGTERM, clean_shutdown);
   signal(SIGINT,  clean_shutdown);
-  
+
   // TODO assign with create
   server->connection = server_on_connection;
 
   // Get notified whenever the socket is ready to read
   // TODO assign with listen
   evn_server_listen(server);
-  
+
   // Run our loop, until we recieve the QUIT, TERM or INT signals, or an 'x' over the socket.
   puts("[dummyd] unix-socket-echo starting...\n");
   ev_loop(EV_A_ 0);
@@ -196,7 +196,7 @@ static void test_process_is_not_blocked(EV_P_ ev_periodic *w, int revents) {
   static int up_time = 0;
   struct stat sb;
   int status1, status2;
-  
+
   //keep the stdout log file from getting too big and crashing the system after a long time running.
   //we are in big trouble anyway if the stderr file gets that big.
   fstat(1, &sb);
@@ -213,7 +213,7 @@ static void test_process_is_not_blocked(EV_P_ ev_periodic *w, int revents) {
       printf("successfully truncated the stdout file\n");
     }
   }
-  
+
   printf("I'm still alive (%d)\n", up_time);
   up_time += 1;
 }
@@ -250,6 +250,7 @@ static void server_on_connection(EV_P_ struct evn_server* server, struct evn_str
   stream->data = stream_on_data;
   stream->close = stream_on_close;
   stream->server = server;
+  stream->oneshot = true;
 }
 
 static void stream_on_close(EV_P_ struct evn_stream* stream, bool had_error)
@@ -258,12 +259,14 @@ static void stream_on_close(EV_P_ struct evn_stream* stream, bool had_error)
 }
 
 // This callback is called when stream data is available
-static void stream_on_data(EV_P_ struct evn_stream* stream, void* data, int n)
+static void stream_on_data(EV_P_ struct evn_stream* stream, void* raw, int n)
 {
   char filename[32];
-  char* cdata = (char*) data;
-  //int n;
-  //struct evn_stream* stream = (struct evn_stream*) w;
+  char code = ((char*)raw)[0];
+  void* data = (void*) &((char*)raw)[1];
+  n -= 1;
+
+  stream->type = code;
 
   //char c[1024];
   //n = recv(stream->fd, &c, 1024, MSG_TRUNC | MSG_PEEK);
@@ -273,11 +276,11 @@ static void stream_on_data(EV_P_ struct evn_stream* stream, void* data, int n)
     perror("recv err");
   }
 
+  /*
   if(0 == stream->type)
   {
     printf("[r]");
-    stream->type = cdata[0];
-    cdata += 1;
+    stream->type = data[0];
     //n = recv(stream->fd, &(stream->type), sizeof (stream->type), 0);
     printf("[dummyd] '0' read %d bytes\n", n);
     if (n <= 0) {
@@ -292,6 +295,7 @@ static void stream_on_data(EV_P_ struct evn_stream* stream, void* data, int n)
       return;
     }
   }
+  */
 
   if ('g' == stream->type) {
     puts("[dummyd] g - dummy_settings");
@@ -299,12 +303,12 @@ static void stream_on_data(EV_P_ struct evn_stream* stream, void* data, int n)
 
     pthread_mutex_lock(&(thread_control.settings_lock));
     //n = recv(stream->fd, &dummy_settings, sizeof dummy_settings, 0);
-    memcpy(&dummy_settings, cdata, sizeof dummy_settings);
+    memcpy(&dummy_settings, data, sizeof dummy_settings);
     printf("[dummyd] 'g' read %d bytes\n", n);
     pthread_mutex_unlock(&(thread_control.settings_lock));
 
     if (sizeof dummy_settings != n) {
-      printf("expected=%d actual=%d", sizeof(dummy_settings), n);
+      printf("expected=%d actual=%d", (int) sizeof(dummy_settings), n);
       perror("recv dummy struct");
       return;
     }
@@ -319,7 +323,7 @@ static void stream_on_data(EV_P_ struct evn_stream* stream, void* data, int n)
     puts("[dummyd] . - process new data (same settings)");
     usleep(10);
     //n = recv(stream->fd, filename, sizeof filename, 0);
-    memcpy(filename, cdata, sizeof filename);
+    memcpy(filename, data, sizeof filename);
     printf("[dummyd] '.' read %d bytes for the filename %s\n", n, filename);
     if (n <= 0) {
       perror("recv raw data filename");

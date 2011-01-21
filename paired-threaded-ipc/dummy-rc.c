@@ -1,5 +1,6 @@
 // Arg Parser
 #include <argp.h>
+#include <string.h>
 
 // Standard Equipment
 #include <stdlib.h>

@@ -12,6 +12,7 @@
 
 #include <ev.h>
 
+#include "buffer-list.h"
 #include "bool.h"
 
 #define EVN_DEBUG 1
@@ -85,6 +86,8 @@ struct evn_stream {
   evn_stream_error_cb* error;
   evn_stream_close_cb* close;
   int index;
+  bool oneshot;
+  evn_bufferlist* bufferlist;
   struct evn_server* server;
   EV_P;
   char type;

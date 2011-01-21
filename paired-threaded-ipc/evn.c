@@ -3,21 +3,23 @@
 #include <errno.h> // errno
 #include <unistd.h> // close
 #include <stdlib.h> // free
+#include <string.h> // memcpy
 
 static int evn_server_unix_create(struct sockaddr_un* socket_un, char* sock_path);
 
 inline struct evn_stream* evn_stream_create(int fd) {
-  puts("[dummyd] new stream");
+  evn_debug("[EVN] new stream");
   struct evn_stream* stream;
 
   //stream = realloc(NULL, sizeof(struct evn_stream));
   stream = calloc(1, sizeof(struct evn_stream));
   stream->fd = fd;
-  stream->type = 0;
+  // stream->type = 0;
+  // stream->oneshot = false;
   evn_set_nonblock(stream->fd);
   ev_io_init(&stream->io, evn_stream_read_priv_cb, stream->fd, EV_READ);
 
-  puts("[dummyd] .nc");
+  evn_debugs(".");
   return stream;
 }
 
@@ -49,11 +51,28 @@ void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents)
   }
   else if (0 == length)
   {
+    if (stream->oneshot)
+    {
+      // TODO put on stack char data[stream->bufferlist->used];
+      evn_buffer* buffer = evn_bufferlist_concat(stream->bufferlist);
+      if (stream->data) { stream->data(EV_A_ stream, buffer->data, buffer->used); }
+      free(buffer); // does not free buffer->data, that's up to the user
+    }
     if (stream->close) { stream->close(EV_A_ stream, false); }
     evn_stream_destroy(EV_A_ stream);
   }
   else if (length > 0)
   {
+    if (stream->oneshot)
+    {
+      // if (stream->progress) { stream->progress(EV_A_ stream, data, length); }
+      // if time - stream->started_at > stream->max_wait; stream->timeout();
+      // if buffer->used > stream->max_size; stream->timeout();
+      evn_bufferlist_add(stream->bufferlist, &data, length);
+      return;
+    }
+    void* data0 = malloc(length);
+    memcpy(data0, &data, length);
     if (stream->data) { stream->data(EV_A_ stream, data, length); }
   }
 }
@@ -85,6 +104,12 @@ void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents)
     puts("[EVN] new stream");
     stream = evn_stream_create(stream_fd);
     if (server->connection) { server->connection(EV_A_ server, stream); }
+    if (stream->oneshot)
+    {
+      // each buffer chunk should be at least 4096 and we'll start with 128 chunks
+      // the size will grow if the actual data received is larger
+      stream->bufferlist = evn_bufferlist_create(4096, 128);
+    }
     //stream->index = array_push(&server->streams, stream);
     ev_io_start(EV_A_ &stream->io);
   }
