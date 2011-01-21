@@ -218,7 +218,7 @@ int main (int argc, char* argv[])
   
     //connection_new(EV_A_ "/tmp/libev-ipc-daemon.sock");
     char socket_address[256];
-    snprintf(socket_address, sizeof socket_address, "/tmp/libev-ipc-daemon.sock%d", (int)getuid());
+    snprintf(socket_address, sizeof socket_address, "/tmp/libev-ipc-daemon.%d.sock", (int)getuid());
     connection_new(EV_A_ socket_address);
 
   // now wait for events to arrive
