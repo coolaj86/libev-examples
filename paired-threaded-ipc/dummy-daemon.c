@@ -22,9 +22,11 @@
 #define LOG_PATH "/tmp/"
 
 //Function Prototypes
-void clean_shutdown(int sig);
+void clean_shutdown(EV_P_ int sig);
 static void add_to_buffer(char* filename);
 static void test_process_is_not_blocked(EV_P_ ev_periodic *w, int revents);
+
+// EVN Network Callbacks
 static void stream_on_data(EV_P_ struct evn_stream* stream, void* data, int n);
 static void stream_on_close(EV_P_ struct evn_stream* stream, bool had_error);
 static void server_on_connection(EV_P_ struct evn_server* server, struct evn_stream* stream);
@@ -36,18 +38,17 @@ const char* argp_program_bug_address = "<bugs@example.com>";
 static char doc[] = "ACME DummyServe -- An abstraction layer between the Dummy Processing Algorithms and Business Logic";
 
 //settings structs
-static DUMMY_SETTINGS   dummy_settings;
+static DUMMY_SETTINGS dummy_settings;
 static bool redirect = false;
 
-static pthread_t dsp_thread;
-static struct DPROC_THREAD_CONTROL thread_control;
+static pthread_t dummy_worker_pthread;
+static struct DUMMY_WORKER_THREAD_CONTROL thread_control;
 
-// Create our single-loop for this single-thread application
-EV_P;
 
 /* The options we understand. */
 static struct argp_option options[] = {
 #include "dummy_settings_argp_option.c"
+  {"write-logs"        , 'w', 0      , 0,  "redirect stdout and stderr to log files" },
   { 0 }
 };
 
@@ -57,6 +58,10 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
   switch (key)
   {
 #include "dummy_settings_parse_opt.c"
+
+    case 'w':
+      redirect = true;
+      break;
 
     case ARGP_KEY_ARG:
       return ARGP_ERR_UNKNOWN;
@@ -70,28 +75,60 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-void clean_shutdown(int sig) {
+// Our argument parser.
+static struct argp argp = { options, parse_opt, 0, doc };
+
+void clean_shutdown(EV_P_ int sig) {
   void* exit_status;
 
   fprintf(stderr, "Received signal %d, shutting down\n", sig);
   // TODO handle signal close(server.fd);
   ev_async_send(thread_control.EV_A, &(thread_control.cleanup));
 
-  //this will block until the dsp_thread exits, at which point we will continue with out shutdown.
-  pthread_join(dsp_thread, &exit_status);
+  //this will block until the dummy_worker_pthread exits, at which point we will continue with out shutdown.
+  pthread_join(dummy_worker_pthread, &exit_status);
   ev_loop_destroy (EV_DEFAULT_UC);
   puts("[dummyd] Dummy cleanup finished.");
   exit(EXIT_SUCCESS);
 }
 
-// Our argument parser.
-static struct argp argp = { options, parse_opt, 0, doc };
+void redirect_output()
+{
+  // these lines are to direct the stdout and stderr to log files we can access even when run as a daemon (after the possible help info is displayed.)
+  //open up the files we want to use for out logs
+  int new_stderr, new_stdout;
+  new_stderr = open(LOG_PATH "dummy_error.log", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+  new_stdout = open(LOG_PATH "dummy_debug.log", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+
+  //truncate those files to clear the old data from long since past.
+  if (0 != ftruncate(new_stderr, 0))
+  {
+    perror("could not truncate stderr log");
+  }
+  if (0 != ftruncate(new_stdout, 0))
+  {
+    perror("could not truncate stdout log");
+  }
+
+  //duplicate the new file descriptors and assign the file descriptors 1 and 2 (stdout and stderr) to the duplicates
+  dup2(new_stderr, 2);
+  dup2(new_stdout, 1);
+
+  //now that they are duplicated we can close them and let the overhead c stuff worry about closing stdout and stderr later.
+  close(new_stderr);
+  close(new_stdout);
+}
 
 int main (int argc, char* argv[])
 {
+  // Create our single-loop for this single-thread application
+  EV_P;
   pthread_attr_t attr;
   int thread_status;
   struct evn_server* server;
+  int max_queue = 128;
+  char socket_address[256];
+  EV_A = ev_default_loop(0);
 
   dummy_settings_set_presets(&dummy_settings);
 
@@ -100,38 +137,12 @@ int main (int argc, char* argv[])
 
   if (true == redirect)
   {
-    //these lines are to direct the stdout and stderr to log files we can access even when run as a daemon (after the possible help info is displayed.)
-    //open up the files we want to use for out logs
-    int new_stderr, new_stdout;
-    new_stderr = open(LOG_PATH "dummy_error.log", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-    new_stdout = open(LOG_PATH "dummy_debug.log", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-
-    //truncate those files to clear the old data from long since past.
-    if (0 != ftruncate(new_stderr, 0))
-    {
-      perror("could not truncate stderr log");
-    }
-    if (0 != ftruncate(new_stdout, 0))
-    {
-      perror("could not truncate stdout log");
-    }
-
-    //duplicate the new file descriptors and assign the file descriptors 1 and 2 (stdout and stderr) to the duplicates
-    dup2(new_stderr, 2);
-    dup2(new_stdout, 1);
-
-    //now that they are duplicated we can close them and let the overhead c stuff worry about closing stdout and stderr later.
-    close(new_stderr);
-    close(new_stdout);
+    redirect_output();
   }
-
-  int max_queue = 128;
-  EV_A = ev_default_loop(0);
 
   if (0)
   {
     struct ev_periodic every_few_seconds;
-
 
     // To be sure that we aren't actually blocking
     ev_periodic_init(&every_few_seconds, test_process_is_not_blocked, 0, 1, 0);
@@ -144,17 +155,17 @@ int main (int argc, char* argv[])
   // initialize the values of the struct that we will be giving to the new thread
   pthread_mutex_init(&(thread_control.settings_lock), NULL);
   thread_control.dummy_settings = &dummy_settings;
-
   pthread_mutex_init(&(thread_control.buffer_lock), NULL);
   thread_control.buffer_head = 0;
   thread_control.buffer_count = 0;
-
   thread_control.EV_A = ev_loop_new(EVFLAG_AUTO);
 
   pthread_attr_init(&attr);
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-  // Initialize the thread that will manage the DPROC
-  thread_status = pthread_create(&dsp_thread, &attr, dummy_worker_thread, (void *)(&thread_control));
+  // Initialize the thread that will manage the DUMMY_WORKER
+  thread_status = pthread_create(&dummy_worker_pthread, &attr, dummy_worker_thread, (void *)(&thread_control));
+
+
   if (0 != thread_status)
   {
     fprintf(stderr, "thread creation failed with errno %d (%s)\n", thread_status, strerror(thread_status));
@@ -164,17 +175,10 @@ int main (int argc, char* argv[])
 
 
   // Create unix socket in non-blocking fashion
-#ifdef TI_DPROC
-  server = evn_server_create(EV_A_ "/tmp/libev-ipc-daemon.sock", max_queue);
-#else
-  char socket_address[256];
+  //server = evn_server_create(EV_A_ "/tmp/libev-ipc-daemon.sock", max_queue);
   snprintf(socket_address, sizeof socket_address, "/tmp/libev-ipc-daemon.sock%d", (int)getuid());
+  unlink(socket_address);
   server = evn_server_create(EV_A_ socket_address, max_queue);
-#endif
-
-  signal(SIGQUIT, clean_shutdown);
-  signal(SIGTERM, clean_shutdown);
-  signal(SIGINT,  clean_shutdown);
 
   // TODO assign with create
   server->connection = server_on_connection;
@@ -188,7 +192,7 @@ int main (int argc, char* argv[])
   ev_loop(EV_A_ 0);
 
   // This point is only ever reached if the loop is manually exited
-  clean_shutdown(0);
+  clean_shutdown(EV_A_ 0);
   return 0;
 }
 
@@ -268,89 +272,56 @@ static void stream_on_data(EV_P_ struct evn_stream* stream, void* raw, int n)
 
   stream->type = code;
 
-  //char c[1024];
-  //n = recv(stream->fd, &c, 1024, MSG_TRUNC | MSG_PEEK);
-  printf("[dummyd] - new data - EV_READ - stream has become readable (%d bytes)\n", n);
-  if (n < 0)
-  {
-    perror("recv err");
-  }
+  printf("[Data CB] - stream has become readable (%d bytes)\n", n);
 
-  /*
-  if(0 == stream->type)
-  {
-    printf("[r]");
-    stream->type = data[0];
-    //n = recv(stream->fd, &(stream->type), sizeof (stream->type), 0);
-    printf("[dummyd] '0' read %d bytes\n", n);
-    if (n <= 0) {
-      if (0 == n) {
-        // an orderly disconnect
-        evn_stream_destroy(EV_A_ stream);
-      } else if (EAGAIN == errno) {
-        fprintf(stderr, "should never get in this state (EAGAIN) with libev\n");
-      } else {
-        perror("recv type");
-      }
-      return;
-    }
-  }
-  */
+  switch (stream->type) {
+  case 's':
+    printf("\t's' - update dummy_settings");
 
-  if ('g' == stream->type) {
-    puts("[dummyd] g - dummy_settings");
-    usleep(10);
-
-    pthread_mutex_lock(&(thread_control.settings_lock));
-    //n = recv(stream->fd, &dummy_settings, sizeof dummy_settings, 0);
-    memcpy(&dummy_settings, data, sizeof dummy_settings);
-    printf("[dummyd] 'g' read %d bytes\n", n);
-    pthread_mutex_unlock(&(thread_control.settings_lock));
-
-    if (sizeof dummy_settings != n) {
+    if (sizeof(dummy_settings) != n) {
       printf("expected=%d actual=%d", (int) sizeof(dummy_settings), n);
-      perror("recv dummy struct");
       return;
     }
-    //evn_stream_destroy(EV_A_ stream);
 
-    // tell the DPROC thread to copy the settings from the pointers we gave it
+    // tell the DUMMY_WORKER thread to copy the settings from the pointers we gave it
+    pthread_mutex_lock(&(thread_control.settings_lock));
+    memcpy(&dummy_settings, data, sizeof dummy_settings);
+    printf("[dummyd] 's' read %d bytes\n", n);
+    pthread_mutex_unlock(&(thread_control.settings_lock));
     ev_async_send(thread_control.EV_A, &(thread_control.update_settings));
-  }
-  else if ('.' == stream->type)
-  {
-    memset(filename, 0, sizeof filename);
-    puts("[dummyd] . - process new data (same settings)");
-    usleep(10);
-    //n = recv(stream->fd, filename, sizeof filename, 0);
-    memcpy(filename, data, sizeof filename);
-    printf("[dummyd] '.' read %d bytes for the filename %s\n", n, filename);
-    if (n <= 0) {
-      perror("recv raw data filename");
+
+    break;
+
+  case '.':
+    printf("\t'.' - continue working");
+
+    if (sizeof(filename) != n) {
+      printf("expected=%d actual=%d", (int) sizeof(filename), n);
       return;
     }
-    //evn_stream_destroy(EV_A_ stream);
+
+    memset(filename, 0, sizeof filename);
+    memcpy(filename, data, sizeof filename);
     add_to_buffer(filename);
-  }
-  else if ('x' == stream->type)
-  {
-    puts("[dummyd] received 'x' (kill) message - exiting");
-    sleep(1);
-    //evn_stream_destroy(EV_A_ stream);
+    break;
+
+  case 'x':
+    printf("\t'x' - received kill message; exiting");
+
+    if (0 != n) {
+      printf("expected=%d actual=%d", (int) 0, n);
+      return;
+    }
+
     ev_unloop(EV_A_ EVUNLOOP_ALL);
-  }
-  else
-  {
-    fprintf(stderr, "unknown socket type. %d, or '%c' not a valid type.\nIgnoring request\n", stream->type, stream->type);
-    //evn_stream_destroy(EV_A_ stream);
+    break;
+
+  default:
+    printf("\t'%c' (%d) - received kill message; exiting", stream->type, stream->type);
+
     exit(EXIT_FAILURE);
   }
 
-  /*
-  // Ping back to let the stream know the message was received with success
-  if (send(stream->fd, ".", strlen("."), 0) < 0) {
-    perror("send");
-  }
-  */
-  puts("[dummyd] done with loop");
+  free(raw);
+  puts(".");
 }

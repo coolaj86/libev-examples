@@ -8,7 +8,7 @@
 static int evn_server_unix_create(struct sockaddr_un* socket_un, char* sock_path);
 
 inline struct evn_stream* evn_stream_create(int fd) {
-  evn_debug("[EVN] new stream");
+  evn_debug("evn_stream_create");
   struct evn_stream* stream;
 
   //stream = realloc(NULL, sizeof(struct evn_stream));
@@ -41,7 +41,7 @@ void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents)
   int length;
   struct evn_stream* stream = (struct evn_stream*) w;
 
-  evn_debugs("[EVN] - new connection - EV_READ - daemon fd has become readable");
+  evn_debugs("EV_READ - stream->fd");
   usleep(100);
   length = recv(stream->fd, &data, 4096, 0);
 
@@ -79,7 +79,7 @@ void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents)
 
 void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents)
 {
-  puts("[EVN] - new connection - EV_READ - deamon fd has become readable");
+  evn_debugs("new connection - EV_READ - server->fd has become readable");
 
   int stream_fd;
   struct evn_stream* stream;
@@ -101,7 +101,6 @@ void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents)
       }
       break;
     }
-    puts("[EVN] new stream");
     stream = evn_stream_create(stream_fd);
     if (server->connection) { server->connection(EV_A_ server, stream); }
     if (stream->oneshot)
@@ -113,7 +112,7 @@ void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents)
     //stream->index = array_push(&server->streams, stream);
     ev_io_start(EV_A_ &stream->io);
   }
-  puts("[EVN] finished accepting connections.");
+  evn_debugs(".");
 }
 
 // Simply adds O_NONBLOCK to the file descriptor of choice
@@ -162,7 +161,6 @@ int evn_server_destroy(EV_P_ struct evn_server* server)
 
 struct evn_server* evn_server_create(EV_P_ char* sock_path, int max_queue)
 {
-    struct timeval timeout = {0, 500000}; // 500000 us, ie .5 seconds;
     struct evn_server* server = calloc(1, sizeof(struct evn_server));
 
     server->EV_A = EV_A;
@@ -182,11 +180,6 @@ struct evn_server* evn_server_create(EV_P_ char* sock_path, int max_queue)
       exit(EXIT_FAILURE);
     }
     
-    if (-1 == setsockopt(server->fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout)) {
-      perror("setting timeout to 0.5 sec");
-      exit(EXIT_FAILURE);
-    }
-    printf("set the receive timeout to %lf\n", ((double)timeout.tv_sec+(1.e-6)*timeout.tv_usec));
     return server;
 }
 

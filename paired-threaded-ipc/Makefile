@@ -18,4 +18,4 @@ test:
 	$(CC) -o dummy-worker-test dummy-worker-test.c dummy-worker.c rand.c
 
 clean:
-	@rm -rf dummyd dummy-rc rand-test dummy-worker-test buffer-list-test
+	@rm -rf *.dSYM dummyd dummy-rc rand-test dummy-worker-test buffer-list-test

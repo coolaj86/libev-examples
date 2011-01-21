@@ -127,7 +127,7 @@ static void send_cb (EV_P_ ev_io *w, int revents)
     }
     else
     {
-      s_sent1 = send(daemon_fd, "g", sizeof(char), 0);
+      s_sent1 = send(daemon_fd, "s", sizeof(char), 0);
       s_sent2 = send(daemon_fd, &dummy_settings, sizeof dummy_settings, 0);
       if ( (-1 == s_sent1) || (-1 == s_sent2) )
       {
@@ -216,13 +216,10 @@ int main (int argc, char* argv[])
   // libev handling
   EV_A = EV_DEFAULT;
   
-  #ifdef TI_DPROC
-    connection_new(EV_A_ "/tmp/libev-ipc-daemon.sock");
-  #else
+    //connection_new(EV_A_ "/tmp/libev-ipc-daemon.sock");
     char socket_address[256];
     snprintf(socket_address, sizeof socket_address, "/tmp/libev-ipc-daemon.sock%d", (int)getuid());
     connection_new(EV_A_ socket_address);
-  #endif
 
   // now wait for events to arrive
   ev_loop(EV_A_ 0);
