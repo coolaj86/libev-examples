@@ -94,7 +94,7 @@ ev_io daemon_w;
 ev_io send_w;
 int daemon_fd;
 
-static void send_cb (EV_P_ ev_io *w, int revents)
+static void evn_client_priv_read_cb (EV_P_ ev_io *w, int revents)
 {
   int s_sent1, s_sent2;
 
@@ -114,13 +114,13 @@ static void send_cb (EV_P_ ev_io *w, int revents)
     else if (true == trigger_process)
     {
       s_sent1 = send(daemon_fd, ".", sizeof(char), 0);
-      s_sent2 = send(daemon_fd, filename, sizeof filename, 0);
+      s_sent2 = send(daemon_fd, filename, sizeof(filename), 0);
       if ( (-1 == s_sent1) || (-1 == s_sent2) )
       {
         perror("echo send");
         exit(EXIT_FAILURE);
       }
-      else if (sizeof filename != s_sent2)
+      else if (sizeof(filename) != s_sent2)
       {
         printf("what the heck? mismatch size? crazy!\n");
       }
@@ -191,7 +191,7 @@ static int connection_new(EV_P_ char* sock_path) {
   ev_io_init (&daemon_w, daemon_cb, daemon_fd, EV_WRITE);
   ev_io_start(EV_A_ &daemon_w);
   // initialize the send callback, but wait to start until there is data to write
-  ev_io_init(&send_w, send_cb, daemon_fd, EV_WRITE);
+  ev_io_init(&send_w, evn_client_priv_read_cb, daemon_fd, EV_WRITE);
 
   daemon.sun_family = AF_UNIX;
   strcpy(daemon.sun_path, sock_path);

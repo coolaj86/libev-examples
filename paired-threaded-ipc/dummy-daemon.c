@@ -84,6 +84,7 @@ static struct argp argp = { options, parse_opt, 0, doc };
 void clean_shutdown(EV_P_ int sig) {
   void* exit_status;
 
+  puts("[Daemon] Shutting Down.\n");
   fprintf(stderr, "Received signal %d, shutting down\n", sig);
   // TODO handle signal close(server.fd);
   ev_async_send(thread_control.EV_A, &(thread_control.cleanup));
@@ -133,10 +134,12 @@ int main (int argc, char* argv[])
   char socket_address[256];
   EV_A = ev_default_loop(0);
 
-  dummy_settings_set_presets(&dummy_settings);
 
-  // Parse our arguments; every option seen by parse_opt will be reflected in settings.
+  // Set default options, then parse new arguments to update the settings
+  dummy_settings_set_presets(&dummy_settings);
   argp_parse (&argp, argc, argv, 0, 0, &dummy_settings);
+  // TODO separate worker settings from daemon settings
+  // (i.e. redirect)
 
   if (true == redirect)
   {
@@ -156,9 +159,7 @@ int main (int argc, char* argv[])
   setpriority(PRIO_PROCESS, 0, -13); // -15
 
   // initialize the values of the struct that we will be giving to the new thread
-  pthread_mutex_init(&(thread_control.settings_lock), NULL);
   thread_control.dummy_settings = &dummy_settings;
-  pthread_mutex_init(&(thread_control.buffer_lock), NULL);
   thread_control.buffer_head = 0;
   thread_control.buffer_count = 0;
   thread_control.EV_A = ev_loop_new(EVFLAG_AUTO);
@@ -167,8 +168,6 @@ int main (int argc, char* argv[])
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
   // Initialize the thread that will manage the DUMMY_WORKER
   thread_status = pthread_create(&dummy_worker_pthread, &attr, dummy_worker_thread, (void *)(&thread_control));
-
-
   if (0 != thread_status)
   {
     fprintf(stderr, "thread creation failed with errno %d (%s)\n", thread_status, strerror(thread_status));
@@ -178,23 +177,17 @@ int main (int argc, char* argv[])
 
 
   // Create unix socket in non-blocking fashion
-  //server = evn_server_create(EV_A_ "/tmp/libev-ipc-daemon.sock", max_queue);
-  snprintf(socket_address, sizeof socket_address, "/tmp/libev-ipc-daemon.sock%d", (int)getuid());
+  snprintf(socket_address, sizeof(socket_address), "/tmp/libev-ipc-daemon.%d.sock", (int)getuid());
   unlink(socket_address);
   server = evn_server_create(EV_A_ socket_address, max_queue);
-
-  // TODO assign with create
   server->connection = server_on_connection;
-
-  // Get notified whenever the socket is ready to read
-  // TODO assign with listen
   evn_server_listen(server);
 
   // Run our loop, until we recieve the QUIT, TERM or INT signals, or an 'x' over the socket.
-  puts("[dummyd] unix-socket-echo starting...\n");
+  puts("[Daemon] Looping.\n");
   ev_loop(EV_A_ 0);
 
-  // This point is only ever reached if the loop is manually exited
+  // Cleanup if `unloop` is ever called
   clean_shutdown(EV_A_ 0);
   return 0;
 }
@@ -250,6 +243,16 @@ static void dwt_enqueue(char* filename)
   ev_async_send(thread_control.EV_A, &(thread_control.process_data));
 }
 
+// When writing these settings we must lock
+inline void dwt_update_settings(void* data)
+{
+    // tell the DUMMY_WORKER thread to copy the settings from the pointers we gave it
+    pthread_mutex_lock(&(thread_control.settings_lock));
+    memcpy(&dummy_settings, data, sizeof(dummy_settings));
+    pthread_mutex_unlock(&(thread_control.settings_lock));
+    ev_async_send(thread_control.EV_A, &(thread_control.update_settings));
+}
+
 
 static void server_on_connection(EV_P_ struct evn_server* server, struct evn_stream* stream)
 {
@@ -263,15 +266,6 @@ static void server_on_connection(EV_P_ struct evn_server* server, struct evn_str
 static void stream_on_close(EV_P_ struct evn_stream* stream, bool had_error)
 {
   puts("[Stream CB] Close");
-}
-
-inline void dwt_update_settings(void* data)
-{
-    // tell the DUMMY_WORKER thread to copy the settings from the pointers we gave it
-    pthread_mutex_lock(&(thread_control.settings_lock));
-    memcpy(&dummy_settings, data, sizeof(dummy_settings));
-    pthread_mutex_unlock(&(thread_control.settings_lock));
-    ev_async_send(thread_control.EV_A, &(thread_control.update_settings));
 }
 
 // This callback is called when stream data is available
