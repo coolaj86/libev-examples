@@ -21,9 +21,11 @@
 
 #define LOG_PATH "/tmp/"
 
-//Function Prototypes
+// to move out
+static void dwt_enqueue(char* filename);
+
+// Function Prototypes
 void clean_shutdown(EV_P_ int sig);
-static void add_to_buffer(char* filename);
 static void test_process_is_not_blocked(EV_P_ ev_periodic *w, int revents);
 
 // EVN Network Callbacks
@@ -31,6 +33,7 @@ static void stream_on_data(EV_P_ struct evn_stream* stream, void* data, int n);
 static void stream_on_close(EV_P_ struct evn_stream* stream, bool had_error);
 static void server_on_connection(EV_P_ struct evn_server* server, struct evn_stream* stream);
 
+// Help / Docs
 const char* argp_program_version = "ACME DummyServe v1.0 (Alphabet Animal)";
 const char* argp_program_bug_address = "<bugs@example.com>";
 
@@ -222,7 +225,7 @@ static void test_process_is_not_blocked(EV_P_ ev_periodic *w, int revents) {
   up_time += 1;
 }
 
-static void add_to_buffer(char* filename)
+static void dwt_enqueue(char* filename)
 {
   int buffer_tail;
 
@@ -262,6 +265,15 @@ static void stream_on_close(EV_P_ struct evn_stream* stream, bool had_error)
   puts("[Stream CB] Close");
 }
 
+inline void dwt_update_settings(void* data)
+{
+    // tell the DUMMY_WORKER thread to copy the settings from the pointers we gave it
+    pthread_mutex_lock(&(thread_control.settings_lock));
+    memcpy(&dummy_settings, data, sizeof(dummy_settings));
+    pthread_mutex_unlock(&(thread_control.settings_lock));
+    ev_async_send(thread_control.EV_A, &(thread_control.update_settings));
+}
+
 // This callback is called when stream data is available
 static void stream_on_data(EV_P_ struct evn_stream* stream, void* raw, int n)
 {
@@ -283,27 +295,27 @@ static void stream_on_data(EV_P_ struct evn_stream* stream, void* raw, int n)
       return;
     }
 
-    // tell the DUMMY_WORKER thread to copy the settings from the pointers we gave it
-    pthread_mutex_lock(&(thread_control.settings_lock));
-    memcpy(&dummy_settings, data, sizeof dummy_settings);
-    printf("[dummyd] 's' read %d bytes\n", n);
-    pthread_mutex_unlock(&(thread_control.settings_lock));
-    ev_async_send(thread_control.EV_A, &(thread_control.update_settings));
+    dwt_update_settings(data);
 
     break;
+
 
   case '.':
     printf("\t'.' - continue working");
 
+
+    // TODO dummy data
     if (sizeof(filename) != n) {
       printf("expected=%d actual=%d", (int) sizeof(filename), n);
       return;
     }
 
-    memset(filename, 0, sizeof filename);
-    memcpy(filename, data, sizeof filename);
-    add_to_buffer(filename);
+    memset(filename, 0, sizeof(filename));
+    memcpy(filename, data, sizeof(filename));
+
+    dwt_enqueue(filename);
     break;
+
 
   case 'x':
     printf("\t'x' - received kill message; exiting");
@@ -316,10 +328,11 @@ static void stream_on_data(EV_P_ struct evn_stream* stream, void* raw, int n)
     ev_unloop(EV_A_ EVUNLOOP_ALL);
     break;
 
-  default:
-    printf("\t'%c' (%d) - received kill message; exiting", stream->type, stream->type);
 
-    exit(EXIT_FAILURE);
+  default:
+    printf("\t'%c' (%d) - received unknown message; exiting", stream->type, stream->type);
+
+    ev_unloop(EV_A_ EVUNLOOP_ALL);
   }
 
   free(raw);
