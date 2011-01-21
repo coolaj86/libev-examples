@@ -5,7 +5,9 @@
 #include <stdlib.h> // free
 #include <string.h> // memcpy
 
+#define EVN_MAX_RECV 4096
 static int evn_server_unix_create(struct sockaddr_un* socket_un, char* sock_path);
+static char recv_data[EVN_MAX_RECV];
 
 inline struct evn_stream* evn_stream_create(int fd) {
   evn_debug("evn_stream_create");
@@ -36,14 +38,14 @@ int evn_stream_destroy(EV_P_ struct evn_stream* stream)
 // This callback is called when data is readable on the unix socket.
 void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents)
 {
-  char data[4096];
+  void* data;
   struct evn_exception error;
   int length;
   struct evn_stream* stream = (struct evn_stream*) w;
 
   evn_debugs("EV_READ - stream->fd");
   usleep(100);
-  length = recv(stream->fd, &data, 4096, 0);
+  length = recv(stream->fd, &recv_data, 4096, 0);
 
   if (length < 0)
   {
@@ -68,12 +70,12 @@ void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents)
       // if (stream->progress) { stream->progress(EV_A_ stream, data, length); }
       // if time - stream->started_at > stream->max_wait; stream->timeout();
       // if buffer->used > stream->max_size; stream->timeout();
-      evn_bufferlist_add(stream->bufferlist, &data, length);
+      evn_bufferlist_add(stream->bufferlist, &recv_data, length);
       return;
     }
-    void* data0 = malloc(length);
-    memcpy(data0, &data, length);
-    if (stream->data) { stream->data(EV_A_ stream, data, length); }
+    data = malloc(length);
+    memcpy(data, &recv_data, length);
+    if (stream->data) { stream->data(EV_A_ stream, recv_data, length); }
   }
 }
 
