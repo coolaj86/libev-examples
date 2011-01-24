@@ -13,6 +13,9 @@ remote:
 buffer:
 	$(CC) -o buffer-list-test buffer-list-test.c buffer-list.c
 
+inbuf:
+	$(CC) -o inbuf-test inbuf-test.c inbuf.c
+
 test:
 	$(CC) -o rand-test rand.c rand-test.c
 	$(CC) -o dummy-worker-test dummy-worker-test.c dummy-worker.c rand.c

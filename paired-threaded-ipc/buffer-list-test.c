@@ -3,21 +3,7 @@
 #include <stdlib.h> // exit
 
 #include "buffer-list.h"
-
-void assert(int truth)
-{
-  static int count = 0;
-  if (!truth)
-  {
-    printf("failed assertion %d\n", count);
-    exit(EXIT_FAILURE);
-  }
-  else
-  {
-    printf("Pass\n");
-  }
-  count += 1;
-}
+#include "evn-assert.c"
 
 int main (int argc, char* argv[])
 {
