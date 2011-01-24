@@ -43,9 +43,9 @@ struct evn_exception;
 #define EVN_STREAM_P struct evn_stream* stream
 
 // Server Callbacks
-typedef void (evn_server_listen_cb)(EV_P_ struct evn_server* server);
-typedef void (evn_server_connection_cb)(EV_P_ struct evn_server* server, struct evn_stream* stream);
-typedef void (evn_server_close_cb)(EV_P_ struct evn_server* server);
+typedef void (evn_server_on_listen)(EV_P_ struct evn_server* server);
+typedef void (evn_server_on_connection)(EV_P_ struct evn_server* server, struct evn_stream* stream);
+typedef void (evn_server_on_close)(EV_P_ struct evn_server* server);
 
 // Client Callbacks
 typedef void (evn_stream_connect_cb)(EV_P_ struct evn_stream* stream);
@@ -66,9 +66,9 @@ struct evn_server {
   ev_io io;
   int fd;
   EV_P;
-  evn_server_listen_cb* listen;
-  evn_server_connection_cb* connection;
-  evn_server_close_cb* close;
+  evn_server_on_listen* listen;
+  evn_server_on_connection* connection;
+  evn_server_on_close* close;
   struct sockaddr_un socket;
   int socket_len;
   //array streams;
@@ -98,14 +98,17 @@ struct evn_stream {
 
 
 int evn_set_nonblock(int fd);
-struct evn_stream* evn_stream_create(int fd);
-struct evn_server* evn_server_create(EV_P_ evn_server_connection_cb* on_connection);
 
-int evn_server_destroy(EV_P_ struct evn_server* server);
-int evn_stream_destroy(EV_P_ struct evn_stream* stream);
-
-void evn_server_connection_priv_cb(EV_P_ ev_io *w, int revents);
-void evn_stream_read_priv_cb(EV_P_ ev_io *w, int revents);
-
+struct evn_server* evn_server_create(EV_P_ evn_server_on_connection* on_connection);
 int evn_server_listen(struct evn_server* server, char* sock_path);
+void evn_server_priv_on_connection(EV_P_ ev_io *w, int revents);
+int evn_server_destroy(EV_P_ struct evn_server* server);
+
+struct evn_stream* evn_stream_create(int fd);
+struct evn_stream* evn_create_connection(EV_P_ char* sock_path);
+void evn_stream_priv_on_read(EV_P_ ev_io *w, int revents);
+bool evn_stream_write(EV_P_ struct evn_stream* stream, void* data, int size);
+bool evn_stream_end(EV_P_ struct evn_stream* stream);
+bool evn_stream_destroy(EV_P_ struct evn_stream* stream);
+
 #endif
