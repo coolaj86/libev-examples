@@ -1,7 +1,7 @@
 #ifndef DUMMY_SETTINGS_STRUCT_H
 #define DUMMY_SETTINGS_STRUCT_H
 
-#define DUMMYD_SOCK "/tmp/dummyd.%d.sock"
+#define DUMMYD_SOCK "/tmp/dummyd-%d.sock"
 
 #pragma pack(1)
 typedef struct

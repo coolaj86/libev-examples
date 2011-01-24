@@ -86,123 +86,179 @@ static struct argp argp = { options, parse_opt, 0, doc };
 * libev connection client
 *
 */
+static bool evn_stream_priv_send(struct evn_stream* stream, void* data, int size);
 
-// Nasty globals for now
-// feel free to fork this example and clean it up
-EV_P;
-ev_io daemon_w;
-ev_io send_w;
-int daemon_fd;
-
-static void evn_client_priv_read_cb (EV_P_ ev_io *w, int revents)
+void evn_stream_end(EV_P_ struct evn_stream* stream)
 {
-  int s_sent1, s_sent2;
+  evn_stream_destroy(EV_A_ stream);
+}
 
-  if (revents & EV_WRITE)
+bool evn_stream_write(EV_P_ struct evn_stream* stream, void* data, int size)
+{
+  if (NULL == stream->_write_bufferlist)
   {
-    puts ("[dummy-rc] - now ready for writing...");
-    if (true == kill_process)
+    if (evn_stream_priv_send(stream, data, size))
     {
-      s_sent1 = send(daemon_fd, "x", sizeof(char), 0);
-      if (-1 == s_sent1)
-      {
-        perror("echo send");
-        exit(EXIT_FAILURE);
-      }
-      puts ("[dummy-rc] - send kill to daemon");
+      evn_debugs("All data was sent without queueing");
+      return true;
     }
-    else if (true == trigger_process)
-    {
-      s_sent1 = send(daemon_fd, ".", sizeof(char), 0);
-      s_sent2 = send(daemon_fd, filename, sizeof(filename), 0);
-      if ( (-1 == s_sent1) || (-1 == s_sent2) )
-      {
-        perror("echo send");
-        exit(EXIT_FAILURE);
-      }
-      else if (sizeof(filename) != s_sent2)
-      {
-        printf("what the heck? mismatch size? crazy!\n");
-      }
-    }
-    else
-    {
-      s_sent1 = send(daemon_fd, "s", sizeof(char), 0);
-      s_sent2 = send(daemon_fd, &dummy_settings, sizeof dummy_settings, 0);
-      if ( (-1 == s_sent1) || (-1 == s_sent2) )
-      {
-        perror("echo send");
-        exit(EXIT_FAILURE);
-      }
-      else if (sizeof dummy_settings != s_sent2)
-      {
-        printf("what the heck? mismatch size? crazy!\n");
-      }
-    }
-
-    // once the data is sent, stop notifications that
-    // data can be sent until there is actually more
-    // data to send
-    close(daemon_fd);
-    ev_io_stop(EV_A_ &send_w);
-    puts ("[dummy-rc] - stopped listening - all events completed already");
-    ev_unloop(EV_A_ EVUNLOOP_ALL);
-    //ev_io_set(&send_w, daemon_fd, EV_READ);
-    //ev_io_start(EV_A_ &send_w);
-  
+    //stream->_write_bufferlist = evn_bufferlist_create(size, 0);
   }
-  else if (revents & EV_READ)
+  //evn_bufferlist_add(stream->_write_bufferlist, data, size);
+
+  // Ensure that we listen for EV_WRITE
+  if (!(stream->io.events & EV_WRITE))
   {
-    puts ("[dummy-rc] - now ready for reading...");
-    // TODO ACK / NACK
+    ev_io_stop(EV_A_ &stream->io);
+    ev_io_set(&stream->io, stream->fd, EV_READ | EV_WRITE);
+  }
+  ev_io_start(EV_A_ &stream->io);
+
+  return false;
+}
+
+static bool evn_stream_priv_send(struct evn_stream* stream, void* data, int size)
+{
+  const char* test_data = ".awesome_sauce";
+  //const int MAX_SEND = 4096;
+  int sent;
+
+  evn_debugs("priv_send");
+  if (NULL == data)
+  {
+    evn_debugs("no data, skipping");
+    return true;
+  }
+
+  // if the buffer exists, append the data to the buffer
+  // while sent != 0 and buffer != NULL
+  // void* data = bufferlist_peek(stream->bufferlist, MAX_SEND);
+  sent = send(stream->fd, test_data, strlen(test_data) + 1, MSG_DONTWAIT);
+  // bufferlist_shift_void(stream->bufferlist, sent);
+
+  return sent == strlen(test_data);
+}
+
+static void evn_stream_priv_on_write(EV_P_ ev_io *w, int revents)
+{
+  struct evn_stream* stream = (struct evn_stream*) w;
+
+  evn_debugs("EV_WRITE");
+
+  evn_stream_priv_send(stream, NULL, 0);
+
+  // If the buffer is finally empty, send the `drain` event
+  if (NULL == stream->_write_bufferlist)
+  {
+    ev_io_stop(EV_A_ &stream->io);
+    ev_io_set(&stream->io, stream->fd, EV_READ);
+    ev_io_start(EV_A_ &stream->io);
+    evn_debugs("pre-drain");
+    if (stream->drain) { stream->drain(EV_A_ stream); }
+    // and the 
+    return;
+  }
+  evn_debugs("post-null");
+}
+
+static inline void evn_stream_priv_on_activity(EV_P_ ev_io *w, int revents)
+{
+  evn_debugs("Stream Activity");
+  if (revents & EV_READ)
+  {
+    // evn_stream_read_priv_cb
+  }
+  else if (revents & EV_WRITE)
+  {
+    evn_stream_priv_on_write(EV_A, w, revents);
+  }
+  else
+  {
+    // Never Happens
+    evn_debugs("[ERR] ev_io received something other than EV_READ or EV_WRITE");
   }
 }
 
-static void daemon_cb (EV_P_ ev_io *w, int revents)
+static void evn_stream_priv_on_connect(EV_P_ ev_io *w, int revents)
 {
-  puts ("[dummy-rc] - new connection - now ready to send to dummyd");
+  struct evn_stream* stream = (struct evn_stream*) w;
+  evn_debugs("Stream Connect");
 
-  // Once the connection is established, listen for writability
-  ev_io_start(EV_A_ &send_w);
-  // Once we're connected, that's the end of that
-  ev_io_stop(EV_A_ &daemon_w);
+  //ev_cb_set (ev_TYPE *watcher, callback)
+  //ev_io_set (&w, STDIN_FILENO, EV_READ);
+
+  ev_io_stop(EV_A_ &stream->io);
+  ev_io_init(&stream->io, evn_stream_priv_on_activity, stream->fd, EV_WRITE);
+  ev_io_start(EV_A_ &stream->io);
+  //ev_cb_set(&stream->io, evn_stream_priv_on_activity);
+
+  if (stream->connect) { stream->connect(EV_A_ stream); }
 }
 
-static int connection_new(EV_P_ char* sock_path) {
-  int len;
-  struct sockaddr_un daemon;
+struct evn_stream* evn_create_connection(EV_P_ char* sock_path) {
+  int stream_fd;
+  struct evn_stream* stream;
+  struct sockaddr_un* sock;
 
-  if (-1 == (daemon_fd = socket(AF_UNIX, SOCK_STREAM, 0))) {
-      perror("socket");
+  stream_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+  if (-1 == stream_fd) {
+      perror("[drc] socket");
       exit(1);
   }
-
-  // Set it non-blocking
-  if (-1 == evn_set_nonblock(daemon_fd)) {
-    perror("echo client socket nonblock");
-    exit(EXIT_FAILURE);
-  }
-
-  // this should be initialized before the connect() so
-  // that no packets are dropped when initially sent?
-  // http://cr.yp.to/docs/connect.html
+  stream = evn_stream_create(stream_fd);
+  sock = &stream->socket;
 
   // initialize the connect callback so that it starts the stdin asap
-  ev_io_init (&daemon_w, daemon_cb, daemon_fd, EV_WRITE);
-  ev_io_start(EV_A_ &daemon_w);
-  // initialize the send callback, but wait to start until there is data to write
-  ev_io_init(&send_w, evn_client_priv_read_cb, daemon_fd, EV_WRITE);
+  ev_io_init(&stream->io, evn_stream_priv_on_connect, stream_fd, EV_WRITE);
+  ev_io_start(EV_A_ &stream->io);
 
-  daemon.sun_family = AF_UNIX;
-  strcpy(daemon.sun_path, sock_path);
-  len = strlen(daemon.sun_path) + sizeof(daemon.sun_family);
+  sock->sun_family = AF_UNIX;
+  strcpy(sock->sun_path, sock_path);
+  stream->socket_len = strlen(sock->sun_path) + 1 + sizeof(sock->sun_family);
 
-  if (-1 == connect(daemon_fd, (struct sockaddr *)&daemon, len)) {
+  if (-1 == connect(stream_fd, (struct sockaddr *) sock, stream->socket_len)) {
       perror("connect");
       exit(EXIT_FAILURE);
   }
   
-  return 0;
+  return stream;
+}
+
+
+//
+// Client Callbacks
+//
+
+void on_drain(EV_P_ struct evn_stream* stream)
+{
+  bool overflow;
+  puts("[dummy-rc] - now ready for writing...");
+
+  if (true == kill_process)
+  {
+    overflow = evn_stream_write(EV_A_ stream, "x", sizeof(char));
+  }
+  else if (true == trigger_process)
+  {
+    evn_stream_write(EV_A_ stream, ".", sizeof(char));
+    overflow = evn_stream_write(EV_A_ stream, filename, sizeof(filename));
+  }
+  else // send settings
+  {
+    evn_stream_write(EV_A_ stream, "s", sizeof(char));
+    overflow = evn_stream_write(EV_A_ stream, &dummy_settings, sizeof(dummy_settings));
+  }
+
+  // 
+  if (overflow)
+  {
+    puts("all or part of the data was queued in user memory");
+    puts("'drain' will be emitted when the buffer is again free");
+  }
+
+  puts("[dummy-rc] - done writing.");
+  evn_stream_end(EV_A_ stream);
+  //ev_unloop(EV_A_ EVUNLOOP_ALL);
 }
 
 int main (int argc, char* argv[])
@@ -214,12 +270,15 @@ int main (int argc, char* argv[])
   argp_parse (&argp, argc, argv, 0, 0, &dummy_settings);
 
   // libev handling
-  EV_A = EV_DEFAULT;
+  EV_P = EV_DEFAULT;
   
-    //connection_new(EV_A_ "/tmp/libev-ipc-daemon.sock");
+    //evn_create_connection(EV_A_ "/tmp/libev-ipc-daemon.sock");
     char socket_address[256];
     snprintf(socket_address, sizeof socket_address, DUMMYD_SOCK, (int)getuid());
-    connection_new(EV_A_ socket_address);
+    struct evn_stream* stream = evn_create_connection(EV_A_ socket_address);
+    if (stream) {
+      stream->drain = on_drain;
+    }
 
   // now wait for events to arrive
   ev_loop(EV_A_ 0);

@@ -49,7 +49,7 @@ typedef void (evn_server_close_cb)(EV_P_ struct evn_server* server);
 
 // Client Callbacks
 typedef void (evn_stream_connect_cb)(EV_P_ struct evn_stream* stream);
-typedef void (evn_stream_secure_cb)(EV_P_ struct evn_stream* stream);
+typedef void (evn_stream_secure_cb)(EV_P_ struct evn_stream* stream); // TODO Implement
 typedef void (evn_stream_data_cb)(EV_P_ struct evn_stream* stream, void* blob, int size);
 typedef void (evn_stream_end_cb)(EV_P_ struct evn_stream* stream);
 typedef void (evn_stream_timeout_cb)(EV_P_ struct evn_stream* stream);
@@ -88,7 +88,10 @@ struct evn_stream {
   int index;
   bool oneshot;
   evn_bufferlist* bufferlist;
+  evn_bufferlist* _write_bufferlist;
   struct evn_server* server;
+  struct sockaddr_un socket;
+  int socket_len;
   EV_P;
   char type;
 };
@@ -96,7 +99,7 @@ struct evn_stream {
 
 int evn_set_nonblock(int fd);
 struct evn_stream* evn_stream_create(int fd);
-struct evn_server* evn_server_create(EV_P_ evn_server_connection_cb* on_connect);
+struct evn_server* evn_server_create(EV_P_ evn_server_connection_cb* on_connection);
 
 int evn_server_destroy(EV_P_ struct evn_server* server);
 int evn_stream_destroy(EV_P_ struct evn_stream* stream);

@@ -31,6 +31,7 @@ int evn_stream_destroy(EV_P_ struct evn_stream* stream)
   // or link loop directly to stream?
   ev_io_stop(EV_A_ &stream->io);
   close(stream->fd);
+  if (stream->close) { stream->close(EV_A_ stream, false); }
   free(stream);
   return 0;
 }
@@ -161,34 +162,35 @@ int evn_server_destroy(EV_P_ struct evn_server* server)
   return 0;
 }
 
-struct evn_server* evn_server_create(EV_P_ evn_server_connection_cb* on_connect)
+struct evn_server* evn_server_create(EV_P_ evn_server_connection_cb* on_connection)
 {
     struct evn_server* server = calloc(1, sizeof(struct evn_server));
     server->EV_A = EV_A;
-    server->connection = on_connect;
-    
+    server->connection = on_connection;
     return server;
 }
 
 int evn_server_listen(struct evn_server* server, char* sock_path)
 {
   int max_queue = 1024;
-  server->fd = evn_server_unix_create(&server->socket, sock_path);
-  server->socket_len = sizeof(server->socket.sun_family) + strlen(server->socket.sun_path);
+  // TODO array_init(&server->streams, 128);
 
-  //array_init(&server->streams, 128);
+  server->fd = evn_server_unix_create(&server->socket, sock_path);
+  server->socket_len = sizeof(server->socket.sun_family) + strlen(server->socket.sun_path) + 1;
+
 
   if (-1 == bind(server->fd, (struct sockaddr*) &server->socket, server->socket_len))
   {
-    perror("echo server bind");
+    perror("[EVN] server bind");
     exit(EXIT_FAILURE);
   }
 
+  // TODO max_queue
   if (-1 == listen(server->fd, max_queue)) {
     perror("listen");
     exit(EXIT_FAILURE);
   }
-
+  
   ev_io_init(&server->io, evn_server_connection_priv_cb, server->fd, EV_READ);
   ev_io_start(server->EV_A_ &server->io);
 
