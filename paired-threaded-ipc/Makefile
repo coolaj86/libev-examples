@@ -6,9 +6,9 @@ all: enet clean server remote test
 
 enet:
 	@mkdir -p ./lib/
-	make -C ../libenet
-	cp -a ../libenet/lib/libenet.a ./lib/
-	cp -a ../libenet/lib/libenet.so* ./lib/
+	make -C ../libevnet
+	cp -a ../libevnet/lib/libevnet.a ./lib/
+	cp -a ../libevnet/lib/libevnet.so* ./lib/
 
 server:
 	$(CC) -o dummyd dummy-daemon.c dummy-worker.c dummy-worker-thread.c dummy-settings.c rand.c

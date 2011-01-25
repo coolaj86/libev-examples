@@ -179,7 +179,7 @@ int main (int argc, char* argv[])
   snprintf(socket_address, sizeof(socket_address), DUMMYD_SOCK, (int)getuid());
   unlink(socket_address);
   server = evn_server_create(EV_A_ server_on_connection);
-  server->connection = server_on_connection;
+  server->on_connection = server_on_connection;
   evn_server_listen(server, 0, socket_address);
 
   // Run our loop, until we recieve the QUIT, TERM or INT signals, or an 'x' over the socket.
@@ -256,8 +256,8 @@ inline void dwt_update_settings(void* data)
 static void server_on_connection(EV_P_ struct evn_server* server, struct evn_stream* stream)
 {
   puts("[Server CB] accepted a stream");
-  stream->data = stream_on_data;
-  stream->close = stream_on_close;
+  stream->on_data = stream_on_data;
+  stream->on_close = stream_on_close;
   stream->server = server;
   stream->oneshot = true;
 }

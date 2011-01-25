@@ -37,7 +37,7 @@ bool evn_stream_destroy(EV_P_ struct evn_stream* stream)
   // or link loop directly to stream?
   ev_io_stop(EV_A_ &stream->io);
   result = close(stream->fd) ? true : false;
-  if (stream->close) { stream->close(EV_A_ stream, result); }
+  if (stream->on_close) { stream->on_close(EV_A_ stream, result); }
   evn_inbuf_destroy(stream->_priv_out_buffer);
   free(stream);
 
@@ -58,7 +58,7 @@ void evn_stream_priv_on_read(EV_P_ ev_io *w, int revents)
 
   if (length < 0)
   {
-    if (stream->error) { stream->error(EV_A_ stream, &error); }
+    if (stream->on_error) { stream->on_error(EV_A_ stream, &error); }
   }
   else if (0 == length)
   {
@@ -66,17 +66,17 @@ void evn_stream_priv_on_read(EV_P_ ev_io *w, int revents)
     {
       // TODO put on stack char data[stream->bufferlist->used];
       evn_buffer* buffer = evn_bufferlist_concat(stream->bufferlist);
-      if (stream->data) { stream->data(EV_A_ stream, buffer->data, buffer->used); }
+      if (stream->on_data) { stream->on_data(EV_A_ stream, buffer->data, buffer->used); }
       free(buffer); // does not free buffer->data, that's up to the user
     }
-    if (stream->close) { stream->close(EV_A_ stream, false); }
+    if (stream->on_end) { stream->on_end(EV_A_ stream); }
     evn_stream_destroy(EV_A_ stream);
   }
   else if (length > 0)
   {
     if (stream->oneshot)
     {
-      // if (stream->progress) { stream->progress(EV_A_ stream, data, length); }
+      // if (stream->on_progress) { stream->on_progress(EV_A_ stream, data, length); }
       // if time - stream->started_at > stream->max_wait; stream->timeout();
       // if buffer->used > stream->max_size; stream->timeout();
       evn_bufferlist_add(stream->bufferlist, &recv_data, length);
@@ -84,7 +84,7 @@ void evn_stream_priv_on_read(EV_P_ ev_io *w, int revents)
     }
     data = malloc(length);
     memcpy(data, &recv_data, length);
-    if (stream->data) { stream->data(EV_A_ stream, recv_data, length); }
+    if (stream->on_data) { stream->on_data(EV_A_ stream, recv_data, length); }
   }
 }
 
@@ -113,7 +113,8 @@ void evn_server_priv_on_connection(EV_P_ ev_io *w, int revents)
       break;
     }
     stream = evn_stream_create(stream_fd);
-    if (server->connection) { server->connection(EV_A_ server, stream); }
+    stream->server = server;
+    if (server->on_connection) { server->on_connection(EV_A_ server, stream); }
     if (stream->oneshot)
     {
       // each buffer chunk should be at least 4096 and we'll start with 128 chunks
@@ -192,19 +193,24 @@ static int evn_priv_unix_create(struct sockaddr_un* socket_un, char* sock_path)
   return fd;
 }
 
-int evn_server_destroy(EV_P_ struct evn_server* server)
+int evn_server_close(EV_P_ struct evn_server* server)
 {
-  if (server->close) { server->close(server->EV_A_ server); }
   ev_io_stop(server->EV_A_ &server->io);
+  if (server->on_close) { server->on_close(server->EV_A_ server); }
   free(server);
   return 0;
+}
+
+int evn_server_destroy(EV_P_ struct evn_server* server)
+{
+  return evn_server_close(EV_A_ server);
 }
 
 struct evn_server* evn_server_create(EV_P_ evn_server_on_connection* on_connection)
 {
   struct evn_server* server = calloc(1, sizeof(struct evn_server));
   server->EV_A = EV_A;
-  server->connection = on_connection;
+  server->on_connection = on_connection;
   return server;
 }
 
@@ -345,7 +351,7 @@ static void evn_stream_priv_on_writable(EV_P_ ev_io *w, int revents)
     ev_io_set(&stream->io, stream->fd, EV_READ);
     ev_io_start(EV_A_ &stream->io);
     evn_debugs("pre-drain");
-    if (stream->drain) { stream->drain(EV_A_ stream); }
+    if (stream->on_drain) { stream->on_drain(EV_A_ stream); }
     // and the 
     return;
   }
@@ -383,7 +389,7 @@ static void evn_stream_priv_on_connect(EV_P_ ev_io *w, int revents)
   ev_io_start(EV_A_ &stream->io);
   //ev_cb_set(&stream->io, evn_stream_priv_on_activity);
 
-  if (stream->connect) { stream->connect(EV_A_ stream); }
+  if (stream->on_connect) { stream->on_connect(EV_A_ stream); }
 }
 
 inline struct evn_stream* evn_create_connection(EV_P_ int port, char* address)
