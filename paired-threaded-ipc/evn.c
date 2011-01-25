@@ -6,7 +6,9 @@
 #include <string.h> // memcpy
 
 #define EVN_MAX_RECV 4096
-static int evn_server_unix_create(struct sockaddr_un* socket_un, char* sock_path);
+static int evn_priv_unix_create(struct sockaddr_un* socket_un, char* sock_path);
+static int evn_priv_tcp_create(struct sockaddr_in* socket_in, int port, char* sock_path);
+
 static bool evn_stream_priv_send(struct evn_stream* stream, void* data, int size);
 static char recv_data[EVN_MAX_RECV];
 
@@ -134,7 +136,35 @@ int evn_set_nonblock(int fd)
   return fcntl(fd, F_SETFL, flags);
 }
 
-static int evn_server_unix_create(struct sockaddr_un* socket_un, char* sock_path)
+static int evn_priv_tcp_create(struct sockaddr_in* socket_in, int port, char* address)
+{
+  int fd;
+
+  // int optval = 1
+  // setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval))
+
+  // Setup a tcp socket listener.
+  fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (-1 == fd) {
+    perror("[EVN] tcp socket create");
+    exit(EXIT_FAILURE);
+  }
+
+  // Set it non-blocking
+  if (-1 == evn_set_nonblock(fd)) {
+    perror("echo server socket nonblock");
+    exit(EXIT_FAILURE);
+  }
+
+  // Set it as a tcp socket
+  socket_in->sin_family = AF_INET;
+  socket_in->sin_addr.s_addr = inet_addr(address);
+  socket_in->sin_port = htons(port);
+
+  return fd;
+}
+
+static int evn_priv_unix_create(struct sockaddr_un* socket_un, char* sock_path)
 {
   int fd;
 
@@ -156,6 +186,8 @@ static int evn_server_unix_create(struct sockaddr_un* socket_un, char* sock_path
   // Set it as unix socket
   socket_un->sun_family = AF_UNIX;
   strcpy(socket_un->sun_path, sock_path);
+  evn_debug("sock_path: %s\n", sock_path);
+  evn_debug("socket_un->sun_path: %s\n", socket_un->sun_path);
 
   return fd;
 }
@@ -176,16 +208,30 @@ struct evn_server* evn_server_create(EV_P_ evn_server_on_connection* on_connecti
   return server;
 }
 
-int evn_server_listen(struct evn_server* server, char* sock_path)
+int evn_server_listen(struct evn_server* server, int port, char* address)
 {
   int max_queue = 1024;
+  struct sockaddr_un* sock_unix;
+  struct sockaddr_in* sock_inet;
   // TODO array_init(&server->streams, 128);
 
-  server->fd = evn_server_unix_create(&server->socket, sock_path);
-  server->socket_len = sizeof(server->socket.sun_family) + strlen(server->socket.sun_path) + 1;
+  if (0 == port)
+  {
+    server->socket = malloc(sizeof(struct sockaddr_un));
+    sock_unix = (struct sockaddr_un*) server->socket;
+    server->fd = evn_priv_unix_create(sock_unix, address);
+    server->socket_len = sizeof(sock_unix->sun_family) + strlen(sock_unix->sun_path) + 1;
+  }
+  else
+  {
+    server->socket = malloc(sizeof(struct sockaddr_in));
+    sock_inet = (struct sockaddr_in*) server->socket;
+    server->fd = evn_priv_tcp_create(sock_inet, port, address);
+    server->socket_len = sizeof(struct sockaddr);
+  }
 
 
-  if (-1 == bind(server->fd, (struct sockaddr*) &server->socket, server->socket_len))
+  if (-1 == bind(server->fd, (struct sockaddr*) server->socket, server->socket_len))
   {
     perror("[EVN] server bind");
     exit(EXIT_FAILURE);
@@ -340,7 +386,45 @@ static void evn_stream_priv_on_connect(EV_P_ ev_io *w, int revents)
   if (stream->connect) { stream->connect(EV_A_ stream); }
 }
 
-struct evn_stream* evn_create_connection(EV_P_ char* sock_path)
+inline struct evn_stream* evn_create_connection(EV_P_ int port, char* address)
+{
+  if (0 == port )
+  {
+    return evn_create_connection_unix_stream(EV_A_ address);
+  }
+  return evn_create_connection_tcp_stream(EV_A_ port, address);
+}
+
+struct evn_stream* evn_create_connection_tcp_stream(EV_P_ int port, char* address)
+{
+  int stream_fd;
+  struct evn_stream* stream;
+  struct sockaddr_in* socket_in;
+
+  stream_fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (-1 == stream_fd) {
+    perror("[EVN] TCP socket connection");
+    exit(EXIT_FAILURE);
+  }
+  stream = evn_stream_create(stream_fd);
+  stream->socket = malloc(sizeof(struct sockaddr_in));
+  socket_in = (struct sockaddr_in*) stream->socket;
+
+  socket_in->sin_family = AF_INET;
+  socket_in->sin_addr.s_addr = inet_addr(address);
+  socket_in->sin_port = htons(port);
+
+  stream->socket_len = sizeof(struct sockaddr);
+
+  if (-1 == connect(stream_fd, (struct sockaddr*) stream->socket, stream->socket_len)) {
+      perror("connect");
+      exit(EXIT_FAILURE);
+  }
+  
+  return stream;
+}
+
+struct evn_stream* evn_create_connection_unix_stream(EV_P_ char* sock_path)
 {
   int stream_fd;
   struct evn_stream* stream;
@@ -348,11 +432,12 @@ struct evn_stream* evn_create_connection(EV_P_ char* sock_path)
 
   stream_fd = socket(AF_UNIX, SOCK_STREAM, 0);
   if (-1 == stream_fd) {
-      perror("[drc] socket");
-      exit(1);
+      perror("[EVN] Unix Stream socket connection");
+      exit(EXIT_FAILURE);
   }
   stream = evn_stream_create(stream_fd);
-  sock = &stream->socket;
+  stream->socket = malloc(sizeof(struct sockaddr_un));
+  sock = (struct sockaddr_un*) stream->socket;
 
   // initialize the connect callback so that it starts the stdin asap
   ev_io_init(&stream->io, evn_stream_priv_on_connect, stream_fd, EV_WRITE);

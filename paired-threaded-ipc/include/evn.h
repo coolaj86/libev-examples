@@ -6,6 +6,8 @@
 // Network Stuff
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <sys/un.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -70,7 +72,7 @@ struct evn_server {
   evn_server_on_listen* listen;
   evn_server_on_connection* connection;
   evn_server_on_close* close;
-  struct sockaddr_un socket;
+  struct sockaddr* socket;
   int socket_len;
   //array streams;
 };
@@ -91,7 +93,7 @@ struct evn_stream {
   evn_bufferlist* bufferlist;
   evn_inbuf* _priv_out_buffer;
   struct evn_server* server;
-  struct sockaddr_un socket;
+  struct sockaddr* socket;
   int socket_len;
   EV_P;
   char type;
@@ -101,12 +103,14 @@ struct evn_stream {
 int evn_set_nonblock(int fd);
 
 struct evn_server* evn_server_create(EV_P_ evn_server_on_connection* on_connection);
-int evn_server_listen(struct evn_server* server, char* sock_path);
+int evn_server_listen(struct evn_server* server, int port, char* address);
 void evn_server_priv_on_connection(EV_P_ ev_io *w, int revents);
 int evn_server_destroy(EV_P_ struct evn_server* server);
 
 struct evn_stream* evn_stream_create(int fd);
-struct evn_stream* evn_create_connection(EV_P_ char* sock_path);
+inline struct evn_stream* evn_create_connection(EV_P_ int port, char* address);
+struct evn_stream* evn_create_connection_unix_stream(EV_P_ char* sock_path);
+struct evn_stream* evn_create_connection_tcp_stream(EV_P_ int port, char* address);
 void evn_stream_priv_on_read(EV_P_ ev_io *w, int revents);
 bool evn_stream_write(EV_P_ struct evn_stream* stream, void* data, int size);
 bool evn_stream_end(EV_P_ struct evn_stream* stream);

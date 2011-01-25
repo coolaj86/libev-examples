@@ -180,7 +180,7 @@ int main (int argc, char* argv[])
   unlink(socket_address);
   server = evn_server_create(EV_A_ server_on_connection);
   server->connection = server_on_connection;
-  evn_server_listen(server, socket_address);
+  evn_server_listen(server, 0, socket_address);
 
   // Run our loop, until we recieve the QUIT, TERM or INT signals, or an 'x' over the socket.
   puts("[Daemon] Looping.\n");

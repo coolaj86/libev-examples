@@ -138,7 +138,7 @@ int main (int argc, char* argv[])
     //evn_create_connection(EV_A_ "/tmp/libev-ipc-daemon.sock");
     char socket_address[256];
     snprintf(socket_address, sizeof socket_address, DUMMYD_SOCK, (int)getuid());
-    struct evn_stream* stream = evn_create_connection(EV_A_ socket_address);
+    struct evn_stream* stream = evn_create_connection(EV_A_ 0, socket_address);
     if (stream) {
       stream->close = on_close;
       stream->drain = on_drain;
