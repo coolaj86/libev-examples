@@ -13,6 +13,7 @@
 #include <ev.h>
 
 #include "buffer-list.h"
+#include "inbuf.h"
 #include "bool.h"
 
 #define EVN_DEBUG 1
@@ -88,7 +89,7 @@ struct evn_stream {
   int index;
   bool oneshot;
   evn_bufferlist* bufferlist;
-  evn_bufferlist* _write_bufferlist;
+  evn_inbuf* _priv_out_buffer;
   struct evn_server* server;
   struct sockaddr_un socket;
   int socket_len;

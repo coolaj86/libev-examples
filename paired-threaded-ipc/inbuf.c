@@ -88,6 +88,11 @@ int evn_inbuf_add(evn_inbuf* buf, void* data, int size)
   size_t trailing = buf->end - buf->top;
   void* new_data;
 
+  if (NULL == data || size == 0)
+  {
+    return 0;
+  }
+
   buf->size = used + size;
 
   if (size <= trailing)

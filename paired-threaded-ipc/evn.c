@@ -17,6 +17,7 @@ inline struct evn_stream* evn_stream_create(int fd) {
   //stream = realloc(NULL, sizeof(struct evn_stream));
   stream = calloc(1, sizeof(struct evn_stream));
   stream->fd = fd;
+  stream->_priv_out_buffer = evn_inbuf_create(EVN_MAX_RECV);
   // stream->type = 0;
   // stream->oneshot = false;
   evn_set_nonblock(stream->fd);
@@ -35,6 +36,7 @@ bool evn_stream_destroy(EV_P_ struct evn_stream* stream)
   ev_io_stop(EV_A_ &stream->io);
   result = close(stream->fd) ? true : false;
   if (stream->close) { stream->close(EV_A_ stream, result); }
+  evn_inbuf_destroy(stream->_priv_out_buffer);
   free(stream);
 
   return result;
@@ -168,10 +170,10 @@ int evn_server_destroy(EV_P_ struct evn_server* server)
 
 struct evn_server* evn_server_create(EV_P_ evn_server_on_connection* on_connection)
 {
-    struct evn_server* server = calloc(1, sizeof(struct evn_server));
-    server->EV_A = EV_A;
-    server->connection = on_connection;
-    return server;
+  struct evn_server* server = calloc(1, sizeof(struct evn_server));
+  server->EV_A = EV_A;
+  server->connection = on_connection;
+  return server;
 }
 
 int evn_server_listen(struct evn_server* server, char* sock_path)
@@ -194,7 +196,7 @@ int evn_server_listen(struct evn_server* server, char* sock_path)
     perror("listen");
     exit(EXIT_FAILURE);
   }
-  
+
   ev_io_init(&server->io, evn_server_priv_on_connection, server->fd, EV_READ);
   ev_io_start(server->EV_A_ &server->io);
 
@@ -208,16 +210,20 @@ bool evn_stream_end(EV_P_ struct evn_stream* stream)
 
 bool evn_stream_write(EV_P_ struct evn_stream* stream, void* data, int size)
 {
-  if (NULL == stream->_write_bufferlist)
+  if (0 == stream->_priv_out_buffer->size)
   {
-    if (evn_stream_priv_send(stream, data, size))
+    if (true == evn_stream_priv_send(stream, data, size))
     {
       evn_debugs("All data was sent without queueing");
       return true;
     }
-    //stream->_write_bufferlist = evn_bufferlist_create(size, 0);
+    evn_debugs("Some data was queued");
+    stream->_priv_out_buffer = evn_inbuf_create(size);
   }
-  //evn_bufferlist_add(stream->_write_bufferlist, data, size);
+
+  evn_debugs("ABQ data");
+
+  evn_inbuf_add(stream->_priv_out_buffer, data, size);
 
   // Ensure that we listen for EV_WRITE
   if (!(stream->io.events & EV_WRITE))
@@ -232,27 +238,53 @@ bool evn_stream_write(EV_P_ struct evn_stream* stream, void* data, int size)
 
 static bool evn_stream_priv_send(struct evn_stream* stream, void* data, int size)
 {
-  const char* test_data = ".awesome_sauce";
   //const int MAX_SEND = 4096;
   int sent;
+  evn_inbuf* buf = stream->_priv_out_buffer;
+  int buf_size = buf->size;
 
   evn_debugs("priv_send");
-  if (NULL == data)
+  if (0 != buf_size)
   {
-    evn_debugs("no data, skipping");
+    evn_debugs("has buffer with data");
+    sent = send(stream->io.fd, buf->bottom, buf->size, MSG_DONTWAIT);
+    evn_inbuf_toss(buf, sent);
+
+    if (sent != buf_size)
+    {
+      evn_debugs("buffer wasn't emptied");
+      if (NULL != data && 0 != size) { evn_inbuf_add(buf, data, size); }
+      return false;
+    }
+
+    if (NULL != data && 0 != size)
+    {
+      evn_debugs("and has more data");
+      sent = send(stream->io.fd, data, size, MSG_DONTWAIT);
+      if (sent != size) {
+        evn_debugs("enqueued remaining data");
+        evn_inbuf_add(buf, data + sent, size - sent);
+        return false;
+      }
+    }
     return true;
   }
 
-  // if the buffer exists, append the data to the buffer
-  // while sent != 0 and buffer != NULL
-  // void* data = bufferlist_peek(stream->bufferlist, MAX_SEND);
-  sent = send(stream->fd, test_data, strlen(test_data) + 1, MSG_DONTWAIT);
-  // bufferlist_shift_void(stream->bufferlist, sent);
+  if (NULL != data && 0 != size)
+  {
+    evn_debugs("doesn't have data in buffer, but does have data");
+    sent = send(stream->io.fd, data, size, MSG_DONTWAIT);
+    if (sent != size) {
+      evn_debugs("could not send all of the data");
+      evn_inbuf_add(buf, data + sent, size - sent);
+      return false;
+    }
+  }
 
-  return sent == strlen(test_data);
+  return true;
 }
 
-static void evn_stream_priv_on_write(EV_P_ ev_io *w, int revents)
+static void evn_stream_priv_on_writable(EV_P_ ev_io *w, int revents)
 {
   struct evn_stream* stream = (struct evn_stream*) w;
 
@@ -261,7 +293,7 @@ static void evn_stream_priv_on_write(EV_P_ ev_io *w, int revents)
   evn_stream_priv_send(stream, NULL, 0);
 
   // If the buffer is finally empty, send the `drain` event
-  if (NULL == stream->_write_bufferlist)
+  if (0 == stream->_priv_out_buffer->size)
   {
     ev_io_stop(EV_A_ &stream->io);
     ev_io_set(&stream->io, stream->fd, EV_READ);
@@ -283,7 +315,7 @@ static inline void evn_stream_priv_on_activity(EV_P_ ev_io *w, int revents)
   }
   else if (revents & EV_WRITE)
   {
-    evn_stream_priv_on_write(EV_A, w, revents);
+    evn_stream_priv_on_writable(EV_A, w, revents);
   }
   else
   {

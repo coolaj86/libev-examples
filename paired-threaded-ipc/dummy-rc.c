@@ -84,36 +84,44 @@ static struct argp argp = { options, parse_opt, 0, doc };
 // Client Callbacks
 //
 
-void on_drain(EV_P_ struct evn_stream* stream)
+static void on_close(EV_P_ struct evn_stream* stream, bool had_error)
 {
-  bool overflow;
-  puts("[dummy-rc] - now ready for writing...");
+  puts("[dummy-rc]\n\tClose CB");
+}
+
+static void on_drain(EV_P_ struct evn_stream* stream)
+{
+  bool all_sent;
+  puts("[dummy-rc]\n\tnow ready for writing...");
 
   if (true == kill_process)
   {
-    overflow = evn_stream_write(EV_A_ stream, "x", sizeof(char));
+    all_sent = evn_stream_write(EV_A_ stream, "x", sizeof(char));
   }
   else if (true == trigger_process)
   {
     evn_stream_write(EV_A_ stream, ".", sizeof(char));
-    overflow = evn_stream_write(EV_A_ stream, filename, sizeof(filename));
+    all_sent = evn_stream_write(EV_A_ stream, filename, sizeof(filename));
   }
   else // send settings
   {
     evn_stream_write(EV_A_ stream, "s", sizeof(char));
-    overflow = evn_stream_write(EV_A_ stream, &dummy_settings, sizeof(dummy_settings));
+    all_sent = evn_stream_write(EV_A_ stream, &dummy_settings, sizeof(dummy_settings));
   }
 
   // 
-  if (overflow)
+  if (false == all_sent)
   {
-    puts("all or part of the data was queued in user memory");
-    puts("'drain' will be emitted when the buffer is again free");
+    puts("[dummy-rc]");
+    puts("\tall or part of the data was queued in user memory");
+    puts("\t'drain' will be emitted when the buffer is again free");
+  }
+  else
+  {
+    puts("[dummy-rc]\n\tSuccess: wrote all data.");
   }
 
-  puts("[dummy-rc] - done writing.");
   evn_stream_end(EV_A_ stream);
-  //ev_unloop(EV_A_ EVUNLOOP_ALL);
 }
 
 int main (int argc, char* argv[])
@@ -132,6 +140,7 @@ int main (int argc, char* argv[])
     snprintf(socket_address, sizeof socket_address, DUMMYD_SOCK, (int)getuid());
     struct evn_stream* stream = evn_create_connection(EV_A_ socket_address);
     if (stream) {
+      stream->close = on_close;
       stream->drain = on_drain;
     }
 
