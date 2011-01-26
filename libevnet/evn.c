@@ -1,9 +1,11 @@
-#include "evn.h"
 
 #include <errno.h> // errno
 #include <unistd.h> // close
 #include <stdlib.h> // free
 #include <string.h> // memcpy
+
+#include "evn.h"
+#include "crossnet.h"
 
 #define EVN_MAX_RECV 4096
 static int evn_priv_unix_create(struct sockaddr_un* socket_un, char* sock_path);
@@ -53,7 +55,6 @@ void evn_stream_priv_on_read(EV_P_ ev_io *w, int revents)
   struct evn_stream* stream = (struct evn_stream*) w;
 
   evn_debugs("EV_READ - stream->fd");
-  usleep(100);
   length = recv(stream->fd, &recv_data, 4096, 0);
 
   if (length < 0)
@@ -64,6 +65,7 @@ void evn_stream_priv_on_read(EV_P_ ev_io *w, int revents)
   {
     if (stream->oneshot)
     {
+      evn_debugs("oneshot shot");
       // TODO put on stack char data[stream->bufferlist->used];
       evn_buffer* buffer = evn_bufferlist_concat(stream->bufferlist);
       if (stream->on_data) { stream->on_data(EV_A_ stream, buffer->data, buffer->used); }
@@ -76,6 +78,7 @@ void evn_stream_priv_on_read(EV_P_ ev_io *w, int revents)
   {
     if (stream->oneshot)
     {
+      evn_debugs("adding to buffer");
       // if (stream->on_progress) { stream->on_progress(EV_A_ stream, data, length); }
       // if time - stream->started_at > stream->max_wait; stream->timeout();
       // if buffer->used > stream->max_size; stream->timeout();
@@ -299,7 +302,12 @@ static bool evn_stream_priv_send(struct evn_stream* stream, void* data, int size
   if (0 != buf_size)
   {
     evn_debugs("has buffer with data");
-    sent = send(stream->io.fd, buf->bottom, buf->size, MSG_DONTWAIT);
+    sent = send(stream->io.fd, buf->bottom, buf->size, MSG_DONTWAIT | EVN_NOSIGNAL);
+    if (sent < 0)
+    {
+      perror("send failed");
+      return false;
+    }
     evn_inbuf_toss(buf, sent);
 
     if (sent != buf_size)
@@ -312,7 +320,12 @@ static bool evn_stream_priv_send(struct evn_stream* stream, void* data, int size
     if (NULL != data && 0 != size)
     {
       evn_debugs("and has more data");
-      sent = send(stream->io.fd, data, size, MSG_DONTWAIT);
+      sent = send(stream->io.fd, data, size, MSG_DONTWAIT | EVN_NOSIGNAL);
+      if (sent < 0)
+      {
+        perror("send failed");
+        return false;
+      }
       if (sent != size) {
         evn_debugs("enqueued remaining data");
         evn_inbuf_add(buf, data + sent, size - sent);
@@ -325,7 +338,12 @@ static bool evn_stream_priv_send(struct evn_stream* stream, void* data, int size
   if (NULL != data && 0 != size)
   {
     evn_debugs("doesn't have data in buffer, but does have data");
-    sent = send(stream->io.fd, data, size, MSG_DONTWAIT);
+    sent = send(stream->io.fd, data, size, MSG_DONTWAIT | EVN_NOSIGNAL);
+    if (sent < 0)
+    {
+      perror("send failed");
+      return false;
+    }
     if (sent != size) {
       evn_debugs("could not send all of the data");
       evn_inbuf_add(buf, data + sent, size - sent);
