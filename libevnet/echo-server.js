@@ -14,46 +14,53 @@
     // stream.setNoDelay();
     // stream.setKeepAlive();
 
-    stream.on('connection', function () {
+    console.log("\t[Stream] readyState: " + stream.readyState);
+
+    stream.on('connect', function () {
       timeout = false;
-      console.log("[Stream] On Connect");
+      console.log("\t[Stream] On Connect");
     });
 
     stream.on('secure', function () {
-      console.log("[Stream] On Secure");
+      console.log("\t[Stream] On Secure");
     });
 
     stream.on('data', function (data) {
       timeout = false;
-      console.log("[Stream] On Data");
+      console.log("\t[Stream] On Data");
       stream.write(data);
     });
 
     stream.on('end', function () {
-      console.log("[Stream] On End (received FIN)");
+      console.log("\t[Stream] On End (received FIN).\n\t\treadyState: " + stream.readyState);
     });
 
     stream.on('timeout', function () {
-      console.log("[Stream] On Timeout");
-      stream.emit('error', new Error("timeout"));
-      // The normal choice would be to
-      // close the stream, not to trigger an error
-      // but, for the sake of example...
-      // stream.close();
+      console.log("\t[Stream] On Timeout");
+      stream.end();
+      console.log("\t[Stream] Closing (sent FIN).\n\t\treadyState: " + stream.readyState);
+    });
+
+    stream.on('drain', function () {
+      console.log("\t[Stream] On Drain");
     });
 
     stream.on('error', function (err) {
-      console.log("[Stream] On Error" + err.message);
+      // not used in this example
+      console.log("\t[Stream] On Error" + err.message);
     });
 
     stream.on('close', function (had_error) {
-      console.log("[Stream] On Close (file descriptor closed)");
-      stream.write("cause error");
+      console.log("\t[Stream] On Close (file descriptor closed). State: " + stream.readyState);
+      // 'closed', 'open', 'opening', 'readOnly', or 'writeOnly'
+      if ('open' === stream.readyState) {
+        stream.write("cause error");
+      }
     });
   }
 
   function on_close() {
-    console.log("[Server] closing; all streams will be closed");
+    console.log("[Server] closing; waiting for all streams to close");
     clearInterval(interval);
   }
 
