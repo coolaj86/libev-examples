@@ -18,7 +18,7 @@ ev_io remote_w;
 ev_io send_w;
 int remote_fd;
 char* line = NULL;
-uint len = 0;
+size_t len = 0;
 
 static void send_cb (EV_P_ ev_io *w, int revents)
 {
