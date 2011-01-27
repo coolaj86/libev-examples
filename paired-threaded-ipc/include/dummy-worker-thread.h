@@ -1,16 +1,16 @@
-#ifndef DPROC_THREAD_STRUCT
-#define DPROC_THREAD_STRUCT
+#ifndef DUMMY_WORKER_THREAD_STRUCT
+#define DUMMY_WORKER_THREAD_STRUCT
 
 #include <ev.h>
 #include <pthread.h>
 
 #include "dummy-settings.h"
 
-// this is the struct containing all the variables that the main thread needs to communicate with the DPROC thread
+// this is the struct containing all the variables that the main thread needs to communicate with the DUMMY_WORKER thread
 // we do this so we can easily pass the info into the secondary thread without using any convoluting externs
 #define BUFFER_SIZE 6
 
-struct DPROC_THREAD_CONTROL {
+struct DUMMY_WORKER_THREAD_CONTROL {
   //the buffer and the mutex lock that prevent multiple read/writes at the same time.
   pthread_mutex_t buffer_lock;
   char buffer[BUFFER_SIZE][32]; // filename

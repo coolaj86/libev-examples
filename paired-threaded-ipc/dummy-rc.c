@@ -1,5 +1,6 @@
 // Arg Parser
 #include <argp.h>
+#include <string.h>
 
 // Standard Equipment
 #include <stdlib.h>
@@ -79,129 +80,48 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 
 static struct argp argp = { options, parse_opt, 0, doc };
 
+//
+// Client Callbacks
+//
 
-/***********************************
-*
-* libev connection client
-*
-*/
-
-// Nasty globals for now
-// feel free to fork this example and clean it up
-EV_P;
-ev_io daemon_w;
-ev_io send_w;
-int daemon_fd;
-
-static void send_cb (EV_P_ ev_io *w, int revents)
+static void on_close(EV_P_ struct evn_stream* stream, bool had_error)
 {
-  int s_sent1, s_sent2;
-
-  if (revents & EV_WRITE)
-  {
-    puts ("[dummy-rc] - now ready for writing...");
-    if (true == kill_process)
-    {
-      s_sent1 = send(daemon_fd, "x", sizeof(char), 0);
-      if (-1 == s_sent1)
-      {
-        perror("echo send");
-        exit(EXIT_FAILURE);
-      }
-      puts ("[dummy-rc] - send kill to daemon");
-    }
-    else if (true == trigger_process)
-    {
-      s_sent1 = send(daemon_fd, ".", sizeof(char), 0);
-      s_sent2 = send(daemon_fd, filename, sizeof filename, 0);
-      if ( (-1 == s_sent1) || (-1 == s_sent2) )
-      {
-        perror("echo send");
-        exit(EXIT_FAILURE);
-      }
-      else if (sizeof filename != s_sent2)
-      {
-        printf("what the heck? mismatch size? crazy!\n");
-      }
-    }
-    else
-    {
-      s_sent1 = send(daemon_fd, "g", sizeof(char), 0);
-      s_sent2 = send(daemon_fd, &dummy_settings, sizeof dummy_settings, 0);
-      if ( (-1 == s_sent1) || (-1 == s_sent2) )
-      {
-        perror("echo send");
-        exit(EXIT_FAILURE);
-      }
-      else if (sizeof dummy_settings != s_sent2)
-      {
-        printf("what the heck? mismatch size? crazy!\n");
-      }
-    }
-
-    // once the data is sent, stop notifications that
-    // data can be sent until there is actually more
-    // data to send
-    close(daemon_fd);
-    ev_io_stop(EV_A_ &send_w);
-    puts ("[dummy-rc] - stopped listening - all events completed already");
-    ev_unloop(EV_A_ EVUNLOOP_ALL);
-    //ev_io_set(&send_w, daemon_fd, EV_READ);
-    //ev_io_start(EV_A_ &send_w);
-  
-  }
-  else if (revents & EV_READ)
-  {
-    puts ("[dummy-rc] - now ready for reading...");
-    // TODO ACK / NACK
-  }
+  puts("[dummy-rc]\n\tClose CB");
 }
 
-static void daemon_cb (EV_P_ ev_io *w, int revents)
+static void on_drain(EV_P_ struct evn_stream* stream)
 {
-  puts ("[dummy-rc] - new connection - now ready to send to dummyd");
+  bool all_sent;
+  puts("[dummy-rc]\n\tnow ready for writing...");
 
-  // Once the connection is established, listen for writability
-  ev_io_start(EV_A_ &send_w);
-  // Once we're connected, that's the end of that
-  ev_io_stop(EV_A_ &daemon_w);
-}
-
-static int connection_new(EV_P_ char* sock_path) {
-  int len;
-  struct sockaddr_un daemon;
-
-  if (-1 == (daemon_fd = socket(AF_UNIX, SOCK_STREAM, 0))) {
-      perror("socket");
-      exit(1);
+  if (true == kill_process)
+  {
+    all_sent = evn_stream_write(EV_A_ stream, "x", sizeof(char));
+  }
+  else if (true == trigger_process)
+  {
+    evn_stream_write(EV_A_ stream, ".", sizeof(char));
+    all_sent = evn_stream_write(EV_A_ stream, filename, sizeof(filename));
+  }
+  else // send settings
+  {
+    evn_stream_write(EV_A_ stream, "s", sizeof(char));
+    all_sent = evn_stream_write(EV_A_ stream, &dummy_settings, sizeof(dummy_settings));
   }
 
-  // Set it non-blocking
-  if (-1 == evn_set_nonblock(daemon_fd)) {
-    perror("echo client socket nonblock");
-    exit(EXIT_FAILURE);
+  // 
+  if (false == all_sent)
+  {
+    puts("[dummy-rc]");
+    puts("\tall or part of the data was queued in user memory");
+    puts("\t'drain' will be emitted when the buffer is again free");
+  }
+  else
+  {
+    puts("[dummy-rc]\n\tSuccess: wrote all data.");
   }
 
-  // this should be initialized before the connect() so
-  // that no packets are dropped when initially sent?
-  // http://cr.yp.to/docs/connect.html
-
-  // initialize the connect callback so that it starts the stdin asap
-  ev_io_init (&daemon_w, daemon_cb, daemon_fd, EV_WRITE);
-  ev_io_start(EV_A_ &daemon_w);
-  // initialize the send callback, but wait to start until there is data to write
-  ev_io_init(&send_w, send_cb, daemon_fd, EV_WRITE);
-
-  daemon.sun_family = AF_UNIX;
-  strcpy(daemon.sun_path, sock_path);
-  len = strlen(daemon.sun_path) + sizeof(daemon.sun_family);
-
-  if (-1 == connect(daemon_fd, (struct sockaddr *)&daemon, len)) {
-      perror("connect");
-      exit(EXIT_FAILURE);
-  }
-  
-  return 0;
+  evn_stream_end(EV_A_ stream);
 }
 
 int main (int argc, char* argv[])
@@ -213,15 +133,16 @@ int main (int argc, char* argv[])
   argp_parse (&argp, argc, argv, 0, 0, &dummy_settings);
 
   // libev handling
-  EV_A = EV_DEFAULT;
+  EV_P = EV_DEFAULT;
   
-  #ifdef TI_DPROC
-    connection_new(EV_A_ "/tmp/libev-ipc-daemon.sock");
-  #else
+    //evn_create_connection(EV_A_ "/tmp/libev-ipc-daemon.sock");
     char socket_address[256];
-    snprintf(socket_address, sizeof socket_address, "/tmp/libev-ipc-daemon.sock%d", (int)getuid());
-    connection_new(EV_A_ socket_address);
-  #endif
+    snprintf(socket_address, sizeof socket_address, DUMMYD_SOCK, (int)getuid());
+    struct evn_stream* stream = evn_create_connection(EV_A_ 0, socket_address);
+    if (stream) {
+      stream->on_close = on_close;
+      stream->on_drain = on_drain;
+    }
 
   // now wait for events to arrive
   ev_loop(EV_A_ 0);
