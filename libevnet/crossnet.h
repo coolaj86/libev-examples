@@ -1,0 +1,5 @@
+#ifndef MSG_NOSIGNAL
+#define EVN_NOSIGNAL SO_NOSIGPIPE
+#else
+#define EVN_NOSIGNAL SO_NOSIGPIPE
+#endif
