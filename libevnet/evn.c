@@ -20,12 +20,11 @@ inline struct evn_stream* evn_stream_create(int fd) {
 
   //stream = realloc(NULL, sizeof(struct evn_stream));
   stream = calloc(1, sizeof(struct evn_stream));
-  stream->fd = fd;
   stream->_priv_out_buffer = evn_inbuf_create(EVN_MAX_RECV);
   // stream->type = 0;
   // stream->oneshot = false;
-  evn_set_nonblock(stream->fd);
-  ev_io_init(&stream->io, evn_stream_priv_on_read, stream->fd, EV_READ);
+  evn_set_nonblock(fd);
+  ev_io_init(&stream->io, evn_stream_priv_on_read, fd, EV_READ);
 
   evn_debugs(".");
   return stream;
@@ -37,8 +36,9 @@ bool evn_stream_destroy(EV_P_ struct evn_stream* stream)
 
   // TODO delay freeing of server until streams have closed
   // or link loop directly to stream?
+  result = close(stream->io.fd) ? true : false;
   ev_io_stop(EV_A_ &stream->io);
-  result = close(stream->fd) ? true : false;
+  stream->ready_state = evn_CLOSED;
   if (stream->on_close) { stream->on_close(EV_A_ stream, result); }
   evn_inbuf_destroy(stream->_priv_out_buffer);
   free(stream);
@@ -54,8 +54,8 @@ void evn_stream_priv_on_read(EV_P_ ev_io *w, int revents)
   int length;
   struct evn_stream* stream = (struct evn_stream*) w;
 
-  evn_debugs("EV_READ - stream->fd");
-  length = recv(stream->fd, &recv_data, 4096, 0);
+  evn_debugs("EV_READ - stream->io.fd");
+  length = recv(stream->io.fd, &recv_data, 4096, 0);
 
   if (length < 0)
   {
@@ -63,16 +63,33 @@ void evn_stream_priv_on_read(EV_P_ ev_io *w, int revents)
   }
   else if (0 == length)
   {
+    evn_debugs("received FIN");
+    // We no longer have data to ready but we may still have data to write
+    stream->ready_state = evn_READ_ONLY;
+    if (stream->io.events & EV_WRITE)
+    {
+      int fd = stream->io.fd;
+      ev_io_stop(EV_A_ &stream->io);
+      ev_io_set(&stream->io, fd, EV_WRITE);
+      ev_io_start(EV_A_ &stream->io);
+    }
+    else
+    {
+      ev_io_stop(EV_A_ &stream->io);
+    }
     if (stream->oneshot)
     {
       evn_debugs("oneshot shot");
       // TODO put on stack char data[stream->bufferlist->used];
-      evn_buffer* buffer = evn_bufferlist_concat(stream->bufferlist);
-      if (stream->on_data) { stream->on_data(EV_A_ stream, buffer->data, buffer->used); }
-      free(buffer); // does not free buffer->data, that's up to the user
+      if (stream->bufferlist->used)
+      {
+        evn_buffer* buffer = evn_bufferlist_concat(stream->bufferlist);
+        if (stream->on_data) { stream->on_data(EV_A_ stream, buffer->data, buffer->used); }
+        free(buffer); // does not free buffer->data, that's up to the user
+      }
     }
     if (stream->on_end) { stream->on_end(EV_A_ stream); }
-    evn_stream_destroy(EV_A_ stream);
+    // evn_stream_destroy(EV_A_ stream);
   }
   else if (length > 0)
   {
@@ -93,7 +110,7 @@ void evn_stream_priv_on_read(EV_P_ ev_io *w, int revents)
 
 void evn_server_priv_on_connection(EV_P_ ev_io *w, int revents)
 {
-  evn_debugs("new connection - EV_READ - server->fd has become readable");
+  evn_debugs("new connection - EV_READ - server->io.fd has become readable");
 
   int stream_fd;
   struct evn_stream* stream;
@@ -105,7 +122,7 @@ void evn_server_priv_on_connection(EV_P_ ev_io *w, int revents)
 
   while (1)
   {
-    stream_fd = accept(server->fd, NULL, NULL);
+    stream_fd = accept(server->io.fd, NULL, NULL);
     if (stream_fd == -1)
     {
       if( errno != EAGAIN && errno != EWOULDBLOCK )
@@ -220,6 +237,7 @@ struct evn_server* evn_server_create(EV_P_ evn_server_on_connection* on_connecti
 int evn_server_listen(struct evn_server* server, int port, char* address)
 {
   int max_queue = 1024;
+  int fd;
   struct sockaddr_un* sock_unix;
   struct sockaddr_in* sock_inet;
   // TODO array_init(&server->streams, 128);
@@ -228,31 +246,32 @@ int evn_server_listen(struct evn_server* server, int port, char* address)
   {
     server->socket = malloc(sizeof(struct sockaddr_un));
     sock_unix = (struct sockaddr_un*) server->socket;
-    server->fd = evn_priv_unix_create(sock_unix, address);
+    evn_debug("%s\n", address);
+    fd = evn_priv_unix_create(sock_unix, address);
     server->socket_len = sizeof(sock_unix->sun_family) + strlen(sock_unix->sun_path) + 1;
   }
   else
   {
     server->socket = malloc(sizeof(struct sockaddr_in));
     sock_inet = (struct sockaddr_in*) server->socket;
-    server->fd = evn_priv_tcp_create(sock_inet, port, address);
+    fd = evn_priv_tcp_create(sock_inet, port, address);
     server->socket_len = sizeof(struct sockaddr);
   }
 
 
-  if (-1 == bind(server->fd, (struct sockaddr*) server->socket, server->socket_len))
+  if (-1 == bind(fd, (struct sockaddr*) server->socket, server->socket_len))
   {
     perror("[EVN] server bind");
     exit(EXIT_FAILURE);
   }
 
   // TODO max_queue
-  if (-1 == listen(server->fd, max_queue)) {
+  if (-1 == listen(fd, max_queue)) {
     perror("listen");
     exit(EXIT_FAILURE);
   }
 
-  ev_io_init(&server->io, evn_server_priv_on_connection, server->fd, EV_READ);
+  ev_io_init(&server->io, evn_server_priv_on_connection, fd, EV_READ);
   ev_io_start(server->EV_A_ &server->io);
 
   return 0;
@@ -283,8 +302,9 @@ bool evn_stream_write(EV_P_ struct evn_stream* stream, void* data, int size)
   // Ensure that we listen for EV_WRITE
   if (!(stream->io.events & EV_WRITE))
   {
+    int fd = stream->io.fd;
     ev_io_stop(EV_A_ &stream->io);
-    ev_io_set(&stream->io, stream->fd, EV_READ | EV_WRITE);
+    ev_io_set(&stream->io, fd, EV_READ | EV_WRITE);
   }
   ev_io_start(EV_A_ &stream->io);
 
@@ -349,6 +369,7 @@ static bool evn_stream_priv_send(struct evn_stream* stream, void* data, int size
       evn_inbuf_add(buf, data + sent, size - sent);
       return false;
     }
+    evn_debugs("sent all of the data");
   }
 
   return true;
@@ -365,8 +386,9 @@ static void evn_stream_priv_on_writable(EV_P_ ev_io *w, int revents)
   // If the buffer is finally empty, send the `drain` event
   if (0 == stream->_priv_out_buffer->size)
   {
+    int fd = stream->io.fd;
     ev_io_stop(EV_A_ &stream->io);
-    ev_io_set(&stream->io, stream->fd, EV_READ);
+    ev_io_set(&stream->io, fd, EV_READ);
     ev_io_start(EV_A_ &stream->io);
     evn_debugs("pre-drain");
     if (stream->on_drain) { stream->on_drain(EV_A_ stream); }
@@ -402,8 +424,9 @@ static void evn_stream_priv_on_connect(EV_P_ ev_io *w, int revents)
   //ev_cb_set (ev_TYPE *watcher, callback)
   //ev_io_set (&w, STDIN_FILENO, EV_READ);
 
+  int fd = stream->io.fd;
   ev_io_stop(EV_A_ &stream->io);
-  ev_io_init(&stream->io, evn_stream_priv_on_activity, stream->fd, EV_WRITE);
+  ev_io_init(&stream->io, evn_stream_priv_on_activity, fd, EV_WRITE);
   ev_io_start(EV_A_ &stream->io);
   //ev_cb_set(&stream->io, evn_stream_priv_on_activity);
 

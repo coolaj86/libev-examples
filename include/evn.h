@@ -60,6 +60,15 @@ typedef void (evn_stream_on_drain)(EV_P_ struct evn_stream* stream);
 typedef void (evn_stream_on_error)(EV_P_ struct evn_stream* stream, struct evn_exception* error);
 typedef void (evn_stream_on_close)(EV_P_ struct evn_stream* stream, bool had_error);
 
+typedef enum
+{
+  evn_CLOSED,
+  evn_OPEN,
+  evn_OPENING,
+  evn_READ_ONLY,
+  evn_WRITE_ONLY
+} evn_ready_state;
+
 struct evn_exception {
   int error_number;
   char message[256];
@@ -67,7 +76,6 @@ struct evn_exception {
 
 struct evn_server {
   ev_io io;
-  int fd;
   EV_P;
   evn_server_on_listen* on_listen;
   evn_server_on_connection* on_connection;
@@ -79,7 +87,6 @@ struct evn_server {
 
 struct evn_stream {
   ev_io io;
-  int fd;
   evn_stream_on_connect* on_connect;
   evn_stream_on_secure* on_secure;
   evn_stream_on_data* on_data;
@@ -88,6 +95,7 @@ struct evn_stream {
   evn_stream_on_drain* on_drain;
   evn_stream_on_error* on_error;
   evn_stream_on_close* on_close;
+  evn_ready_state ready_state;
   int index;
   bool oneshot;
   evn_bufferlist* bufferlist;
