@@ -1,5 +1,7 @@
 CFLAGS=-Wall -Werror -Iinclude -g3 -ggdb3 -I/opt/local/include -I../include
-LDFLAGS=-lev -lpthread -lenet -g3 -ggdb3 -L/opt/local/lib -L./lib/ -largp
+LDFLAGS=-lev -levnet -lpthread -g3 -ggdb3 -L/opt/local/lib -L./lib
+# on OS X include -largp
+# LDFLAGS+= -largp
 CC=gcc ${CFLAGS} ${LDFLAGS}
 
 all: enet clean server remote test
@@ -11,10 +13,10 @@ enet:
 	cp -a ../libevnet/lib/libevnet.so* ./lib/
 
 server:
-	$(CC) -o dummyd dummy-daemon.c dummy-worker.c dummy-worker-thread.c dummy-settings.c rand.c
+	$(CC) -o dummyd dummy-daemon.c dummy-worker.c dummy-worker-thread.c dummy-settings.c rand.c -levnet -L./lib
 
 remote:
-	$(CC) -o dummy-rc dummy-rc.c dummy-settings.c
+	$(CC) -o dummy-rc dummy-rc.c dummy-settings.c -levnet -L./lib
 
 test:
 	$(CC) -o rand-test rand.c rand-test.c

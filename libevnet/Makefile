@@ -18,7 +18,7 @@ static:
 	ar rcs lib/libevnet.a obj/enet.o obj/inbuf.o obj/buffer-list.o
 
 shared:
-	$(SCC) -soname,libevnet.so.1 \
+	$(SCC) -Wl,-soname,libevnet.so.1 \
     -o lib/libevnet.so.1.0.0 \
       evn.c \
       buffer-list.c \
