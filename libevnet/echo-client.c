@@ -82,8 +82,11 @@ static void on_close(EV_P_ struct evn_stream* stream, bool had_error)
 int main (int argc, char* argv[])
 {
   EV_P = EV_DEFAULT;
-  char socket_address[256] = "/tmp/libevnet-echo.%d.sock";
-  snprintf(socket_address, sizeof socket_address, socket_address, (int)getuid());
+  char socket_address[256] = {};
+  printf("socket_address: %s\n", socket_address);
+  snprintf(socket_address, 256, "%s%i%s", "/tmp/libevnet-echo.", (int) getuid(), ".sock");
+  puts(socket_address);
+
   struct evn_stream* stream = evn_create_connection(EV_A_ 0, socket_address);
 
   if (stream) {
