@@ -12,7 +12,6 @@ static int evn_priv_unix_create(struct sockaddr_un* socket_un, char* sock_path);
 static int evn_priv_tcp_create(struct sockaddr_in* socket_in, int port, char* sock_path);
 
 static bool evn_stream_priv_send(struct evn_stream* stream, void* data, int size);
-static char recv_data[EVN_MAX_RECV];
 
 inline struct evn_stream* evn_stream_create(int fd) {
   evn_debug("evn_stream_create");
@@ -41,6 +40,7 @@ bool evn_stream_destroy(EV_P_ struct evn_stream* stream)
   stream->ready_state = evn_CLOSED;
   if (stream->on_close) { stream->on_close(EV_A_ stream, result); }
   evn_inbuf_destroy(stream->_priv_out_buffer);
+  free(stream->socket);
   free(stream);
 
   return result;
@@ -53,9 +53,10 @@ void evn_stream_priv_on_read(EV_P_ ev_io *w, int revents)
   struct evn_exception error;
   int length;
   struct evn_stream* stream = (struct evn_stream*) w;
+  char recv_data[EVN_MAX_RECV];
 
   evn_debugs("EV_READ - stream->io.fd");
-  length = recv(stream->io.fd, &recv_data, 4096, 0);
+  length = recv(stream->io.fd, &recv_data, EVN_MAX_RECV, 0);
 
   if (length < 0)
   {
@@ -64,8 +65,8 @@ void evn_stream_priv_on_read(EV_P_ ev_io *w, int revents)
   else if (0 == length)
   {
     evn_debugs("received FIN");
-    // We no longer have data to ready but we may still have data to write
-    stream->ready_state = evn_READ_ONLY;
+    // We no longer have data to read but we may still have data to write
+    stream->ready_state = evn_WRITE_ONLY;
     if (stream->io.events & EV_WRITE)
     {
       int fd = stream->io.fd;
@@ -392,7 +393,7 @@ static void evn_stream_priv_on_writable(EV_P_ ev_io *w, int revents)
     ev_io_start(EV_A_ &stream->io);
     evn_debugs("pre-drain");
     if (stream->on_drain) { stream->on_drain(EV_A_ stream); }
-    // and the 
+    // and the
     return;
   }
   evn_debugs("post-null");
@@ -464,10 +465,12 @@ struct evn_stream* evn_create_connection_tcp_stream(EV_P_ int port, char* addres
   stream->socket_len = sizeof(struct sockaddr);
 
   if (-1 == connect(stream_fd, (struct sockaddr*) stream->socket, stream->socket_len)) {
-      perror("connect");
-      exit(EXIT_FAILURE);
+    fprintf(stderr, "[EVN] connect to %s: %s\n", address, strerror(errno));
+    //exit(EXIT_FAILURE);
+    evn_stream_destroy(EV_A_ stream);
+    stream = NULL;
   }
-  
+
   return stream;
 }
 
@@ -479,8 +482,8 @@ struct evn_stream* evn_create_connection_unix_stream(EV_P_ char* sock_path)
 
   stream_fd = socket(AF_UNIX, SOCK_STREAM, 0);
   if (-1 == stream_fd) {
-      perror("[EVN] Unix Stream socket connection");
-      exit(EXIT_FAILURE);
+    perror("[EVN] Unix Stream socket connection");
+    exit(EXIT_FAILURE);
   }
   stream = evn_stream_create(stream_fd);
   stream->socket = malloc(sizeof(struct sockaddr_un));
@@ -495,9 +498,11 @@ struct evn_stream* evn_create_connection_unix_stream(EV_P_ char* sock_path)
   stream->socket_len = strlen(sock->sun_path) + 1 + sizeof(sock->sun_family);
 
   if (-1 == connect(stream_fd, (struct sockaddr *) sock, stream->socket_len)) {
-      perror("connect");
-      exit(EXIT_FAILURE);
+    fprintf(stderr, "[EVN] connect to %s: %s\n", sock_path, strerror(errno));
+    //exit(EXIT_FAILURE);
+    evn_stream_destroy(EV_A_ stream);
+    stream = NULL;
   }
-  
+
   return stream;
 }

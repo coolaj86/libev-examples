@@ -1,3 +1,6 @@
+#ifndef EVN_BUFFER_LIST_H_
+#define EVN_BUFFER_LIST_H_
+
 #include <stdio.h> // printf
 
 #define evn_error(...) printf("[EVN] " __VA_ARGS__)
@@ -38,7 +41,7 @@ void evn_buffer_destroy(evn_buffer* buffer);
 
 // Create a "smart" buffer
 evn_bufferlist* evn_bufferlist_create(int min_block_size, int slices);
-// Copy data into the buffer 
+// Copy data into the buffer
 int evn_bufferlist_add(evn_bufferlist* bufferlist, void* data, int size);
 // Copy all data into a single buffer
 evn_buffer* evn_bufferlist_concat(evn_bufferlist* bufferlist);
@@ -47,3 +50,5 @@ evn_buffer* evn_bufferlist_concat(evn_bufferlist* bufferlist);
 
 // Free all memory associated with the bufferlist and the buffers it contains
 void evn_bufferlist_destroy(evn_bufferlist* bufferlist);
+
+#endif

@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#include "inbuf.h"
+#include "evn-inbuf.h"
 #include "evn-assert.c"
 #include "string.h"
 

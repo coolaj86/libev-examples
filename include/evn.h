@@ -14,11 +14,9 @@
 
 #include <ev.h>
 
-#include "buffer-list.h"
-#include "inbuf.h"
-#include "bool.h"
-
-#define EVN_DEBUG 1
+#include "evn-buffer-list.h"
+#include "evn-inbuf.h"
+#include "evn-bool.h"
 
 #ifndef EVN_DEBUG
   #if defined DEBUG
@@ -105,6 +103,7 @@ struct evn_stream {
   int socket_len;
   EV_P;
   char type;
+  void* send_data;
 };
 
 
